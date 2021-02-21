@@ -5,14 +5,13 @@ from PyQt5.QtMultimediaWidgets import QVideoWidget
 from PyQt5.QtWidgets import QFileDialog, QHBoxLayout, QMainWindow, QPushButton, QSlider, QWidget, QVBoxLayout
 
 
-class VideoWidget(QWidget):
+class VideoWidget(QWidget): #QDock
 
     def __init__(self, path=None):
         super().__init__()
 
         # Structure
-        self.layoutBox = QVBoxLayout()
-        self.setLayout(self.layoutBox)
+        self.setLayout(QVBoxLayout())
 
         # Buttons
         self.buttonRow = QWidget()
@@ -38,10 +37,11 @@ class VideoWidget(QWidget):
         self.player.stateChanged.connect(self.__onPlayerStateChange)
         self.player.positionChanged.connect(self.__onPositionSet)
         self.player.durationChanged.connect(self.__onVideoDurationChange)
+        self.videoWidget.setMinimumSize(640, 480)
 
         # Add widgets to self
-        self.layoutBox.addWidget(self.videoWidget)
-        self.layoutBox.addWidget(self.buttonRow)
+        self.layout().addWidget(self.videoWidget)
+        self.layout().addWidget(self.buttonRow)
 
         # Load video if exists
         self.path = path
@@ -59,6 +59,9 @@ class VideoWidget(QWidget):
         '''
         if (not path): # set path if doesn't exist
             path, _ = QFileDialog.getOpenFileName(None, "Open Movie", QDir.currentPath())
+        
+        if (not path): # user cancels selection
+            return None
 
         if (instance is None): # spawn if no instance
             instance = VideoWidget()
