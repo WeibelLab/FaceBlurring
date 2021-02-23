@@ -28,9 +28,9 @@ window.setLayout(layout)
 # classInfo.value()
 
 # Set Stylesheet
-qss = "./darktheme.qss"
-with open(qss, 'r') as f:
-    app.setStyleSheet("\n".join(f.readlines()))
+# qss = "./darktheme.qss"
+# with open(qss, 'r') as f:
+#     app.setStyleSheet("\n".join(f.readlines()))
 
 # Upper
 upper = QWidget()
