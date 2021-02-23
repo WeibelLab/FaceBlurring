@@ -27,10 +27,8 @@ window.setLayout(layout)
 # classInfo.name()
 # classInfo.value()
 
-print('hello fucker')
-
 # Set Stylesheet
-qss = "./Qt_interface/darktheme.qss"
+qss = "./darktheme.qss"
 with open(qss, 'r') as f:
     app.setStyleSheet("\n".join(f.readlines()))
 

@@ -10,8 +10,8 @@ class SidebarWidget(QWidget): #QDock
         self.metaObject().className()
         self.setLayout(QHBoxLayout())
 
-        print(help(self))
-        self.setAttribute("className", "SidebarWidget") # FIXME: works?
+        # print(help(self))
+        # self.setAttribute("className", "SidebarWidget") # FIXME: works?
         
         self.__videoSpace = videoSpace
 

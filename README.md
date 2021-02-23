@@ -11,7 +11,8 @@ A tool for blurring faces in videos. Intended use is for blurring PII data.
       1. Windows: `./myvirtualenv/Scripts/Activate.bat`
       2. Unix: `source ./myvirtualenv/Scripts/activate` or sometimes it is in `./myvirtualenv/bin/activate`
 3. Install Qt: `pip install PyQt5`
-4. Run the application `python ./Qt_Interface/main.py`
+4. Install OpenCV: `pip install opencv-python`
+5. Run the application `python ./Qt_Interface/main.py`
 
 ### Bugs?
 `DirectShowPlayerService::doRender: Unresolved error code 0x80040266 (IDispatch error #102)` on Windows
