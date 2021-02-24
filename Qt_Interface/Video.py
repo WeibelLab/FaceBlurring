@@ -13,7 +13,7 @@ from BlurObject import *
 
 class VideoThread(QThread):
     changePixmap = pyqtSignal(QImage)
-    newFrame = pyqtSignal(numpy.ndarray)
+    newFrame = pyqtSignal(int, numpy.ndarray)
     stateChanged = pyqtSignal(bool) # True for playing started. False for playing stopped
     positionChanged = pyqtSignal(int)
 
@@ -48,6 +48,7 @@ class VideoThread(QThread):
         self.mutex.lock()
         ret, self.__frame = self.video.read()
         self.mutex.unlock()
+        self.newFrame.emit(self.current_frame, self.__frame)
         self.render_frame()
 
         while not self.__kill:
@@ -65,6 +66,7 @@ class VideoThread(QThread):
                     if (self.current_frame == self.number_of_frames):
                         self.pause()
                     self.mutex.unlock()
+                    self.newFrame.emit(self.current_frame, self.__frame)
             else:
                 time.sleep(1/self.fps) # do nothing
 
@@ -89,7 +91,6 @@ class VideoThread(QThread):
 
     def render_frame(self):
         self.positionChanged.emit(self.current_frame)
-        self.newFrame.emit(self.__frame)
         rgb = cv2.cvtColor(self.__frame, cv2.COLOR_BGR2RGB)
 
         # Convert into QT Format
@@ -106,6 +107,7 @@ class VideoThread(QThread):
             self.video.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
             ret, self.__frame = self.video.read()
             self.mutex.unlock()
+            self.newFrame.emit(self.current_frame, self.__frame)
             self.render_frame()
         else:
             raise Exception("index {} is out of the video bounds 0 -> {}".format(frame_index, self.number_of_frames))
@@ -118,7 +120,7 @@ class VideoThread(QThread):
 class Video(QLabel):
 
     __sizeChanged = pyqtSignal(int, int)
-    newFrame = pyqtSignal(numpy.ndarray) # Outputs an OpenCV frame before it is rendered to GUI
+    newFrame = pyqtSignal(int, numpy.ndarray) # Outputs an OpenCV frame before it is rendered to GUI
     positionChanged = pyqtSignal(int)
     stateChanged = pyqtSignal(bool)
 
@@ -334,7 +336,7 @@ class VideoWidget(QWidget): #QDock
         self._blur_strands.append(self._blur_object)
         return super().mousePressEvent(a0)
 
-    def mouseMoveEvent(self, a0: QtGui.QMouseEvent) -> None:
+    def mouseMoveEvent(self, a0: QtGui.QMouseEvent) -> None: #FIXME: throwing error
         # Get click location in movie's space
         self._blur_object.addPoint(
             self.video.position,
@@ -345,6 +347,8 @@ class VideoWidget(QWidget): #QDock
         return super().mouseMoveEvent(a0)
 
     def mouseReleaseEvent(self, a0: QtGui.QMouseEvent) -> None:
+        self._blur_object.complete()
+        self.video.newFrame.connect(self._blur_object.checkBlurFrame)
         print("Released", self._blur_object)
         self._blur_object = None
         return super().mouseReleaseEvent(a0)
