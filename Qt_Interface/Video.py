@@ -150,6 +150,10 @@ class Video(QLabel):
 
         self.setMinimumSize(1280, 640)
 
+        # Blurring
+        self._blur_strands = []
+        self._blur_object = None
+
     @property
     def duration(self):
         return self.number_of_frames / self.fps
@@ -199,6 +203,48 @@ class Video(QLabel):
 
 
 
+    def convert_point_to_video(self, x, y):
+        '''
+        Converts a point in the Video object PyQt space
+        into the pixel in the video element
+        '''
+
+        new_x = numpy.interp(x, [0, self.size().width()], [0, self.resolution[0]])
+        new_y = numpy.interp(y, [0, self.size().height()], [0, self.resolution[1]])
+        return (new_x, new_y)
+
+    def mousePressEvent(self, a0: QtGui.QMouseEvent) -> None:
+        click = (a0.localPos().x(), a0.localPos().y())
+        frame_loc = self.convert_point_to_video(*click)
+        print("Mouse clicked in Widget at {} corresponding to {} in video of resolution {}".format(click, frame_loc, self.resolution))
+
+        self._blur_object = BlurStrand(self, self.resolution)
+        self._blur_strands.append(self._blur_object)
+
+        self.mouseMoveEvent(a0) # add starting point
+        return super().mousePressEvent(a0)
+
+    def mouseMoveEvent(self, a0: QtGui.QMouseEvent) -> None: #FIXME: throwing error
+        # Get click location in movie's space
+
+        click = (a0.localPos().x(), a0.localPos().y())
+        frame_loc = self.convert_point_to_video(*click)
+
+        self._blur_object.addPoint(
+            self.position,
+            frame_loc,
+            0.1, # TODO: Implement brush size
+        )
+        return super().mouseMoveEvent(a0)
+
+    def mouseReleaseEvent(self, a0: QtGui.QMouseEvent) -> None:
+        self._blur_object.complete()
+        self.newFrame.connect(self._blur_object.checkBlurFrame, type=Qt.DirectConnection)
+        print("Released", self._blur_object)
+        self._blur_object = None
+        return super().mouseReleaseEvent(a0)
+
+
 
 
 class VideoWidget(QWidget): #QDock
@@ -239,16 +285,6 @@ class VideoWidget(QWidget): #QDock
         self.progressSlider.sliderPressed.connect(self.video.pause) # pause when user presses slider
         self.video.positionChanged.connect(self.progressSlider.setValue) # update the slider as video plays
         self.buttonRowLayout.addWidget(self.progressSlider)
-        
-        # Set Blurring variables
-        self._blur_strands = []
-        self._blur_object = None
-        self._blur_layer = QLabel()
-        self._blur_layer.setText("Hello There")
-        self.videoContainer.layout().addWidget(self._blur_layer)
-        self.videoContainer.layout().setCurrentWidget(self._blur_layer)
-        self.videoContainer.layout().setStackingMode(QStackedLayout.StackAll)
-        # TODO: when videoWidget size changes, update blur layer size
 
     @property
     def display_resolution(self):
@@ -298,12 +334,6 @@ class VideoWidget(QWidget): #QDock
             os.remove(filepath)
         atexit.register(remove, filepath=path)
 
-        # Open file with OpenCV
-        # instance._video = cv2.VideoCapture(path)
-        # atexit.register(instance._video.release)
-
-        # assign video
-        
         if (instance is None): # spawn if no instance
             instance = VideoWidget(path=path)
         instance.playButton.setEnabled(True)
@@ -329,26 +359,3 @@ class VideoWidget(QWidget): #QDock
 
     # def __onVideoDurationChange(self, duration):
     #     self.progressSlider.setRange(0, duration)
-
-
-    def mousePressEvent(self, a0: QtGui.QMouseEvent) -> None:
-        self._blur_object = BlurStrand(self, self.display_resolution, self.video_resolution)
-        self._blur_strands.append(self._blur_object)
-        return super().mousePressEvent(a0)
-
-    def mouseMoveEvent(self, a0: QtGui.QMouseEvent) -> None: #FIXME: throwing error
-        # Get click location in movie's space
-        self._blur_object.addPoint(
-            self.video.position,
-            (a0.localPos().x(), a0.localPos().y()),
-            0.1, # TODO: Implement brush size
-            self.display_resolution
-        )
-        return super().mouseMoveEvent(a0)
-
-    def mouseReleaseEvent(self, a0: QtGui.QMouseEvent) -> None:
-        self._blur_object.complete()
-        self.video.newFrame.connect(self._blur_object.checkBlurFrame)
-        print("Released", self._blur_object)
-        self._blur_object = None
-        return super().mouseReleaseEvent(a0)
