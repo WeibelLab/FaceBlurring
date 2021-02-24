@@ -25,7 +25,7 @@ class VideoThread(QThread):
         self.video = video
         self.fps = self.video.get(cv2.CAP_PROP_FPS)
         self.resolution = self.video.get(cv2.CAP_PROP_FRAME_WIDTH), self.video.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        self.output_resolution = [640, 480]
+        self.output_resolution = self.resolution
         
         # play state
         self.number_of_frames = self.video.get(cv2.CAP_PROP_FRAME_COUNT)
@@ -113,9 +113,16 @@ class VideoThread(QThread):
             raise Exception("index {} is out of the video bounds 0 -> {}".format(frame_index, self.number_of_frames))
 
     def updateSize(self, x, y):
-        print("Updating output resolution to", x, y)
+        aspect_ratio = self.resolution[0] / self.resolution[1]
+        x = x
+        y = x/aspect_ratio
         self.output_resolution = [x, y]
 
+        print("Request to update resolution of {} video ({} aspect ratio) to {} ({} aspect ratio).\n\tActually set to {}".format(
+            self.resolution, aspect_ratio,
+            (x, y), x/y,
+            self.output_resolution
+        ))
 
 class Video(QLabel):
 
@@ -127,6 +134,9 @@ class Video(QLabel):
     def __init__(self, parent=None, video="./SampleVideo.mp4"):
         super().__init__(parent)
         self.setLayout(QVBoxLayout())
+        self.layout().setSpacing(0)
+        self.layout().setContentsMargins(0, 0, 0, 0)
+        self.setStyleSheet("border: #f00 solid 5px")
 
         # Load Video
         self._video_path = video
@@ -148,7 +158,7 @@ class Video(QLabel):
         self.__image_update_thread.positionChanged.connect(self.positionChanged.emit)
         self.__image_update_thread.stateChanged.connect(self.stateChanged.emit)
 
-        self.setMinimumSize(1280, 640)
+        self.setFixedWidth(self.resolution[0]/2)
 
         # Blurring
         self._blur_strands = []
@@ -182,12 +192,50 @@ class Video(QLabel):
         self.setPixmap(QPixmap.fromImage(image))
 
     def setFixedSize(self, x, y):
+        # Constrain size to video aspect ratio
+        aspect_ratio = self.resolution[0] / self.resolution[1]
+        x = x
+        y = x / aspect_ratio
+
         super().setFixedSize(x, y)
         self.__sizeChanged.emit(x, y)
 
     def setMinimumSize(self, x, y):
+        # Constrain size to video aspect ratio
+        aspect_ratio = self.resolution[0] / self.resolution[1]
+        x = x
+        y = x / aspect_ratio
+
         super().setMinimumSize(x, y)
         self.__sizeChanged.emit(x, y)
+
+    def setFixedHeight(self, h: int) -> None:
+        # Constrain size to video aspect ratio
+        aspect_ratio = self.resolution[0] / self.resolution[1]
+        x = h * aspect_ratio
+        y = h
+        self.setFixedSize(x, y)
+
+    def setFixedWidth(self, w: int) -> None:
+        # Constrain size to video aspect ratio
+        aspect_ratio = self.resolution[0] / self.resolution[1]
+        x = w
+        y = w / aspect_ratio
+        self.setFixedSize(x, y)
+
+    def setMinimumHeight(self, minh: int) -> None:
+        # Constrain size to video aspect ratio
+        aspect_ratio = self.resolution[0] / self.resolution[1]
+        x = minh * aspect_ratio
+        y = minh
+        self.setMinimumSize(x, y)
+
+    def setMinimumWidth(self, minw: int) -> None:
+        # Constrain size to video aspect ratio
+        aspect_ratio = self.resolution[0] / self.resolution[1]
+        x = minw
+        y = minw / aspect_ratio
+        self.setMinimumSize(x, y)
 
     def play(self):
         print("Playing")
@@ -216,7 +264,7 @@ class Video(QLabel):
     def mousePressEvent(self, a0: QtGui.QMouseEvent) -> None:
         click = (a0.localPos().x(), a0.localPos().y())
         frame_loc = self.convert_point_to_video(*click)
-        print("Mouse clicked in Widget at {} corresponding to {} in video of resolution {}".format(click, frame_loc, self.resolution))
+        print("Mouse clicked in Widget at {} in {} sized widget. Corresponding to {} in video of resolution {}".format(click, (self.size().width(), self.size().height()), frame_loc, self.resolution))
 
         self._blur_object = BlurStrand(self, self.resolution)
         self._blur_strands.append(self._blur_object)
@@ -263,8 +311,7 @@ class VideoWidget(QWidget): #QDock
         self.layout().addWidget(self.videoContainer)
 
         self.video.stateChanged.connect(self.__onPlayerStateChange)
-        self.video.setMinimumSize(640, 480)
-        self.videoContainer.setMinimumSize(640, 480)
+        # self.video.setFixedWidth(640)
 
         # Buttons
         self.buttonRow = QWidget()
