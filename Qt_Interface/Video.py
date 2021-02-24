@@ -144,7 +144,7 @@ class Video(QLabel):
         self.__sizeChanged.connect(self.__image_update_thread.updateSize)
 
         # Pass through signals
-        self.__image_update_thread.newFrame.connect(self.newFrame.emit)
+        self.__image_update_thread.newFrame.connect(self.newFrame.emit, type=Qt.DirectConnection)
         self.__image_update_thread.positionChanged.connect(self.positionChanged.emit)
         self.__image_update_thread.stateChanged.connect(self.stateChanged.emit)
 
@@ -263,7 +263,6 @@ class VideoWidget(QWidget): #QDock
         self.layout().addWidget(self.videoContainer)
 
         self.video.stateChanged.connect(self.__onPlayerStateChange)
-        # self.video.durationChanged.connect(self.__onVideoDurationChange)
         self.video.setMinimumSize(640, 480)
         self.videoContainer.setMinimumSize(640, 480)
 
