@@ -246,7 +246,6 @@ class Video(QLabel):
         self.__image_update_thread.pause()
 
     def setPosition(self, frame):
-        print("Setting to", frame)
         self.__image_update_thread.set_frame(frame)
 
 
@@ -272,9 +271,7 @@ class Video(QLabel):
         self.mouseMoveEvent(a0) # add starting point
         return super().mousePressEvent(a0)
 
-    def mouseMoveEvent(self, a0: QtGui.QMouseEvent) -> None: #FIXME: throwing error
-        # Get click location in movie's space
-
+    def mouseMoveEvent(self, a0: QtGui.QMouseEvent) -> None:
         click = (a0.localPos().x(), a0.localPos().y())
         frame_loc = self.convert_point_to_video(*click)
 
@@ -286,6 +283,7 @@ class Video(QLabel):
         return super().mouseMoveEvent(a0)
 
     def mouseReleaseEvent(self, a0: QtGui.QMouseEvent) -> None:
+        self.mouseMoveEvent(a0)
         self._blur_object.complete()
         self.newFrame.connect(self._blur_object.checkBlurFrame, type=Qt.DirectConnection)
         print("Released", self._blur_object)
@@ -334,7 +332,7 @@ class VideoWidget(QWidget): #QDock
 
     @property
     def display_resolution(self):
-        return self.video.size() # FIXME: get displayed video's resolution
+        return (self.video.size().width(), self.video.size().height())
 
     @property
     def video_resolution(self):
