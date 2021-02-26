@@ -1,7 +1,8 @@
 
 from Video import VideoWidget
 from PyQt5.QtCore import QDir
-from PyQt5.QtWidgets import QFileDialog, QHBoxLayout, QPushButton, QWidget
+from PyQt5.QtWidgets import QDockWidget, QFileDialog, QHBoxLayout, QPushButton, QWidget
+from PyQt5.QtCore import Qt
 
 class SidebarWidget(QWidget): #QDock
 
@@ -26,5 +27,8 @@ class SidebarWidget(QWidget): #QDock
     def loadVideo(self):
         video = VideoWidget.loadVideo()
         if (video is not None):
-            self.__videoSpace.layout().addWidget(video)
+            if (isinstance(video, QDockWidget)):
+                self.__videoSpace.addDockWidget(Qt.LeftDockWidgetArea, video)
+            else:
+                self.__videoSpace.layout().addWidget(video)
         

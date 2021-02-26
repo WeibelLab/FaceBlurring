@@ -3,7 +3,7 @@ from PyQt5 import QtGui
 from PyQt5.QtCore import QDir, QUrl, Qt, QThread, pyqtSignal, QMutex
 from PyQt5.QtMultimedia import QMediaContent, QMediaPlayer
 from PyQt5.QtMultimediaWidgets import QVideoWidget
-from PyQt5.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QPushButton, QSlider, QStackedLayout, QWidget, QVBoxLayout
+from PyQt5.QtWidgets import QDockWidget, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSlider, QStackedLayout, QWidget, QVBoxLayout
 from PyQt5.QtGui import QFont, QImage, QPixmap
 
 import cv2, os, shutil, atexit, numpy, time
@@ -295,8 +295,11 @@ class Video(QLabel):
 
 class VideoWidget(QWidget): #QDock
 
-    def __init__(self, path=None):
+    def __init__(self, name="Video", path=None):
         super().__init__()
+        # self.setFloating(False)
+        # self.setFeatures(QDockWidget.DockWidgetMovable)
+        # self.setAllowedAreas(Qt.AllDockWidgetAreas)
 
         # Structure
         self.setLayout(QVBoxLayout())
@@ -379,7 +382,7 @@ class VideoWidget(QWidget): #QDock
         atexit.register(remove, filepath=path)
 
         if (instance is None): # spawn if no instance
-            instance = VideoWidget(path=path)
+            instance = VideoWidget(filename, path=path)
         instance.playButton.setEnabled(True)
         return instance
 
