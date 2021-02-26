@@ -48,7 +48,6 @@ timeline.setMinimumHeight(100)
 videoSpace = QWidget()
 videoLayout = QHBoxLayout()
 videoSpace.setLayout(videoLayout)
-videoSpace.setMinimumSize(640, 480)
 
 # Sidebar
 sidebar = Sidebar.SidebarWidget(None, videoSpace)
