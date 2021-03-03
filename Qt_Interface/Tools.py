@@ -66,13 +66,14 @@ class BlurBrush(Tool):
             location, # blur location
             self.brush_size
         )
-        video.rerender()
+        print(video)
 
     def mouse_up(self, video, location):
         self.mouse_move(video, location)
         video._blur_object.complete()
         video.newFrame.connect(video._blur_object.checkBlurFrame, type=Qt.DirectConnection)
         video._blur_object = None
+        video.rerender()
 
 class ConstantBlur(Tool):
     icon_path = "C:/Users/tlsha/GitHub/FaceBlurring/assets/select.png"
@@ -103,6 +104,7 @@ class ConstantBlur(Tool):
         video._blur_object.complete(simplify=False)
         video.newFrame.connect(video._blur_object.checkBlurFrame, type=Qt.DirectConnection)
         video._blur_object = None
+        video.rerender()
 
 class Eraser(Tool):
     icon_path = "C:/Users/tlsha/GitHub/FaceBlurring/assets/eraser.png"
