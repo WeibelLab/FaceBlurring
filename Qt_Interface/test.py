@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import *
 app = QApplication([])
 window = QWidget()
 window.setLayout(QVBoxLayout())
+window.capture_the_flag = "Capture me"
 
 scrollAreaWidget = QWidget()
 scrollAreaWidget.setLayout(QVBoxLayout())
@@ -13,18 +14,13 @@ window.layout().addWidget(scrollAreaWidget)
 
 scrollAreaWidget.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.MinimumExpanding)
 
-scrollArea = QScrollArea(scrollAreaWidget)
-scrollArea.setBackgroundRole(QPalette.Window)
-scrollArea.setFrameShadow(QFrame.Plain)
-scrollArea.setFrameShape(QFrame.NoFrame)
-scrollArea.setWidgetResizable(True)
-scrollAreaWidget.layout().addWidget(scrollArea)
-scrollArea.setWidget(scrollAreaWidget)
-
 for i in range(100):
     lab = QLabel()
     lab.setText("Hello World how are you doing today?")
     scrollAreaWidget.layout().addWidget(lab)
+
+else:
+    print(lab.window().layout().children()[0])
 
 
 window.show()

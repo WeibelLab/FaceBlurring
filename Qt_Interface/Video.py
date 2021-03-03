@@ -131,6 +131,12 @@ class Video(QLabel):
     positionChanged = pyqtSignal(int)
     stateChanged = pyqtSignal(bool)
 
+    
+    # Click Events
+    mouse_down = pyqtSignal(tuple)
+    mouse_move = pyqtSignal(tuple)
+    mouse_up = pyqtSignal(tuple)
+
     def __init__(self, parent=None, video="./SampleVideo.mp4"):
         super().__init__(parent)
         self.setLayout(QVBoxLayout())
@@ -158,11 +164,17 @@ class Video(QLabel):
         self.__image_update_thread.positionChanged.connect(self.positionChanged.emit)
         self.__image_update_thread.stateChanged.connect(self.stateChanged.emit)
 
+        # Click Events
+        # self.mouse_down = pyqtSignal(Video, tuple)
+        # self.mouse_move = pyqtSignal(Video, tuple)
+        # self.mouse_up = pyqtSignal(Video, tuple)
+
         self.setFixedWidth(self.resolution[0]/2)
 
         # Blurring
         self._blur_strands = []
         self._blur_object = None
+
 
     @property
     def duration(self):
@@ -263,31 +275,19 @@ class Video(QLabel):
     def mousePressEvent(self, a0: QtGui.QMouseEvent) -> None:
         click = (a0.localPos().x(), a0.localPos().y())
         frame_loc = self.convert_point_to_video(*click)
-        print("Mouse clicked in Widget at {} in {} sized widget. Corresponding to {} in video of resolution {}".format(click, (self.size().width(), self.size().height()), frame_loc, self.resolution))
-
-        self._blur_object = BlurStrand(self, self.resolution)
-        self._blur_strands.append(self._blur_object)
-
-        self.mouseMoveEvent(a0) # add starting point
+        self.mouse_down.emit((self, frame_loc))
         return super().mousePressEvent(a0)
 
     def mouseMoveEvent(self, a0: QtGui.QMouseEvent) -> None:
         click = (a0.localPos().x(), a0.localPos().y())
         frame_loc = self.convert_point_to_video(*click)
-
-        self._blur_object.addPoint(
-            self.position,
-            frame_loc,
-            0.1, # TODO: Implement brush size
-        )
+        self.mouse_move.emit((self, frame_loc))
         return super().mouseMoveEvent(a0)
 
     def mouseReleaseEvent(self, a0: QtGui.QMouseEvent) -> None:
-        self.mouseMoveEvent(a0)
-        self._blur_object.complete()
-        self.newFrame.connect(self._blur_object.checkBlurFrame, type=Qt.DirectConnection)
-        print("Released", self._blur_object)
-        self._blur_object = None
+        click = (a0.localPos().x(), a0.localPos().y())
+        frame_loc = self.convert_point_to_video(*click)
+        self.mouse_up.emit((self, frame_loc))
         return super().mouseReleaseEvent(a0)
 
 
@@ -295,7 +295,12 @@ class Video(QLabel):
 
 class VideoWidget(QWidget): #QDock
 
-    def __init__(self, name="Video", path=None):
+    # Passthrough click events
+    mouse_down = pyqtSignal(tuple)
+    mouse_move = pyqtSignal(tuple)
+    mouse_up = pyqtSignal(tuple)
+
+    def __init__(self, name="Video", path=None, toolbar=None):
         super().__init__()
         # self.setFloating(False)
         # self.setFeatures(QDockWidget.DockWidgetMovable)
@@ -303,6 +308,7 @@ class VideoWidget(QWidget): #QDock
 
         # Structure
         self.setLayout(QVBoxLayout())
+        self.setObjectName("VideoWidget")
 
         # Video
         self.videoContainer = QWidget()
@@ -333,6 +339,14 @@ class VideoWidget(QWidget): #QDock
         self.video.positionChanged.connect(self.progressSlider.setValue) # update the slider as video plays
         self.buttonRowLayout.addWidget(self.progressSlider)
 
+        # Passthrough click events
+        self.video.mouse_down.connect(self.mouse_down.emit)
+        self.video.mouse_move.connect(self.mouse_move.emit)
+        self.video.mouse_up.connect(self.mouse_up.emit)
+
+        # Register with Toolbar
+        toolbar.register_video(self)
+
     @property
     def display_resolution(self):
         return (self.video.size().width(), self.video.size().height())
@@ -340,51 +354,6 @@ class VideoWidget(QWidget): #QDock
     @property
     def video_resolution(self):
         return self.video.resolution
-
-
-    @staticmethod
-    def loadVideo(path=None, instance=None):
-        '''Loads video from a path
-        @param {str} path the path to the video. If None will open file selection window
-        @param {Video} instance the object to assign the video to. Creates a new isntance if None
-
-        Loading process will create a copy of the video in a 'tmp' folder.
-        Changes in the UI will not overwrite the original video
-        '''
-        if (not path): # set path if doesn't exist
-            path, _ = QFileDialog.getOpenFileName(None, "Open Movie", QDir.currentPath())
-        
-        if (not path): # user cancels selection
-            return None
-
-
-        # Load Video
-        # Move video to tmp folder
-        absolute_path = os.path.abspath(path)
-        folder = os.path.dirname(absolute_path)
-        temp_folder = os.path.join(folder, "tmp")
-        filename = absolute_path.replace(folder, "").strip("\\").strip("/")
-
-        # Create temp folder
-        if not os.path.exists(temp_folder):
-            os.mkdir(temp_folder) # make folder
-            def removeFolder(folder):
-                print("Removing folder", folder)
-                os.removedirs(folder)
-            atexit.register(removeFolder, folder=temp_folder) # only gets removed by whichever video created it
-
-        # Create temp file
-        path = os.path.join(temp_folder, "_"+filename)
-        shutil.copyfile(absolute_path, path) # copy file so we can edit it
-        def remove(filepath):
-            print("Removing file", filepath)
-            os.remove(filepath)
-        atexit.register(remove, filepath=path)
-
-        if (instance is None): # spawn if no instance
-            instance = VideoWidget(filename, path=path)
-        instance.playButton.setEnabled(True)
-        return instance
 
     def play(self):
         ''' plays or pauses video '''
