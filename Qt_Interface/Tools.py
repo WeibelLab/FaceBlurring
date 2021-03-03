@@ -82,8 +82,41 @@ class ConstantBlur(Tool):
     def __init__(self):
         super().__init__()
 
+    def mouse_down(self, video, location):
+        pass
+    
+    def mouse_move(self, video, location):
+        pass
+
+    def mouse_up(self, video, location):
+
+        video._blur_object = BlurStrand(video, video.resolution)
+        video._blur_strands.append(video._blur_object)
+        
+        # Blur all frames
+        for i in range(int(video.number_of_frames)):
+            video._blur_object.addPoint(
+                i,
+                location,
+                self.brush_size
+            )
+
+        video._blur_object.complete()
+        video.newFrame.connect(video._blur_object.checkBlurFrame, type=Qt.DirectConnection)
+        video._blur_object = None
+
 class Eraser(Tool):
     icon_path = "C:/Users/tlsha/GitHub/FaceBlurring/assets/eraser.png"
+
+    def __init__(self):
+        super().__init__()
+
+class SplitStrand(Tool):
+    '''
+    Takes a blur stand and cuts it into two at the given frame.
+    This allows the user to erase a portion of a blur strand
+    '''
+    icon_path = "C:/Users/tlsha/GitHub/FaceBlurring/assets/scissors.png"
 
     def __init__(self):
         super().__init__()
