@@ -28,17 +28,14 @@ class Tool:
 
     @abstractmethod
     def mouse_down(self, data: tuple) -> None:
-        print("\tTool Down")
         pass
 
     @abstractmethod
     def mouse_move(self, data: tuple) -> None:
-        print("\tTool Use")
         pass
 
     @abstractmethod
     def mouse_up(self, data: tuple) -> None:
-        print("\tTool Up")
         pass
 
     def on_active_tool_changed(self, tool) -> None:
@@ -69,6 +66,7 @@ class BlurBrush(Tool):
             location, # blur location
             self.brush_size
         )
+        video.rerender()
 
     def mouse_up(self, video, location):
         self.mouse_move(video, location)
@@ -94,6 +92,7 @@ class ConstantBlur(Tool):
         video._blur_strands.append(video._blur_object)
         
         # Blur all frames
+        print("Blurring from frame 0 to frame", int(video.number_of_frames))
         for i in range(int(video.number_of_frames)):
             video._blur_object.addPoint(
                 i,
@@ -101,7 +100,7 @@ class ConstantBlur(Tool):
                 self.brush_size
             )
 
-        video._blur_object.complete()
+        video._blur_object.complete(simplify=False)
         video.newFrame.connect(video._blur_object.checkBlurFrame, type=Qt.DirectConnection)
         video._blur_object = None
 

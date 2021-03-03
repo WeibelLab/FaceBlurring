@@ -5,7 +5,7 @@ from VideoBlurringWindow import *
 # Create Window with widget
 app = QApplication([])
 # Set Stylesheet
-# qss = "./darktheme.qss"
+# qss = "./Qt_Interface/darktheme.qss"
 # with open(qss, 'r') as f:
 #     app.setStyleSheet("\n".join(f.readlines()))
 

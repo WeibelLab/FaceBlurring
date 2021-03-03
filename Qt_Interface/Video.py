@@ -1,10 +1,10 @@
 
 from PyQt5 import QtGui
-from PyQt5.QtCore import QDir, QUrl, Qt, QThread, pyqtSignal, QMutex
+from PyQt5.QtCore import QDir, QEvent, QUrl, Qt, QThread, pyqtSignal, QMutex
 from PyQt5.QtMultimedia import QMediaContent, QMediaPlayer
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 from PyQt5.QtWidgets import QDockWidget, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSlider, QStackedLayout, QWidget, QVBoxLayout
-from PyQt5.QtGui import QFont, QImage, QPixmap
+from PyQt5.QtGui import QCursor, QFont, QImage, QPixmap
 
 import cv2, os, shutil, atexit, numpy, time
 from BlurObject import *
@@ -57,16 +57,17 @@ class VideoThread(QThread):
                     self.render_frame()
 
                     # Wait and get next frame
-                    time.sleep(1/self.fps)
+                    time.sleep(1/self.fps) # TODO: account for processing time
 
-                    self.mutex.lock()
-                    ret, self.__frame = self.video.read()
-                    self.current_frame += 1
-
-                    if (self.current_frame == self.number_of_frames):
+                    if (self.current_frame >= self.number_of_frames-1):
                         self.pause()
-                    self.mutex.unlock()
-                    self.newFrame.emit(self.current_frame, self.__frame)
+                    else: 
+                        self.mutex.lock()
+                        ret, self.__frame = self.video.read()
+                        self.current_frame += 1
+
+                        self.mutex.unlock()
+                        self.newFrame.emit(self.current_frame, self.__frame)
             else:
                 time.sleep(1/self.fps) # do nothing
 
@@ -75,7 +76,7 @@ class VideoThread(QThread):
             pass
         else:
             print("Thread playing")
-            if self.current_frame >= self.number_of_frames:
+            if self.current_frame >= self.number_of_frames-1:
                 self.set_frame(0)
                 
             self.__is_playing = True
@@ -112,6 +113,9 @@ class VideoThread(QThread):
         else:
             raise Exception("index {} is out of the video bounds 0 -> {}".format(frame_index, self.number_of_frames))
 
+    def rerender(self):
+        self.set_frame(self.current_frame)
+
     def updateSize(self, x, y):
         aspect_ratio = self.resolution[0] / self.resolution[1]
         x = x
@@ -136,6 +140,7 @@ class Video(QLabel):
     mouse_down = pyqtSignal(tuple)
     mouse_move = pyqtSignal(tuple)
     mouse_up = pyqtSignal(tuple)
+    scroll_event = pyqtSignal(int)
 
     def __init__(self, parent=None, video="./SampleVideo.mp4"):
         super().__init__(parent)
@@ -174,6 +179,14 @@ class Video(QLabel):
         # Blurring
         self._blur_strands = []
         self._blur_object = None
+
+        # Set Cursor
+        self.setCursor(QCursor(Qt.CrossCursor))
+        # cursor_size = self.cursor().pixmap().size()
+        # self.cursor().pixmap().load("../assets/erase.png")
+        # print("Cursor size",cursor_size.width(), cursor_size.height())
+        # self.installEventFilter(self)
+
 
 
     @property
@@ -260,6 +273,9 @@ class Video(QLabel):
     def setPosition(self, frame):
         self.__image_update_thread.set_frame(frame)
 
+    def rerender(self):
+        self.__image_update_thread.rerender()
+
 
 
     def convert_point_to_video(self, x, y):
@@ -271,6 +287,38 @@ class Video(QLabel):
         new_x = numpy.interp(x, [0, self.size().width()], [0, self.resolution[0]])
         new_y = numpy.interp(y, [0, self.size().height()], [0, self.resolution[1]])
         return (new_x, new_y)
+
+        
+
+    def eventFilter(self, obj, event):
+        if obj is self:
+            print("self", event.type())
+            if event.type() == QEvent.HoverEnter:
+                print("Hover")
+                self.mouseHoverEnter(event)
+            elif event.type() == QEvent.HoverMove:
+                print("Hover")
+                self.mouseHoverMoved(event)
+            elif event.type() == QEvent.HoverLeave:
+                print("Hover")
+                self.mouseHoverLeave(event)
+
+        return super(Video, self).eventFilter(obj, event)
+
+    def mouseHoverEnter(self, location):
+        print("Enter", location)
+        pass
+    def mouseHoverMoved(self, location):
+        print(location)
+        pass
+    def mouseHoverLeave(self, location):
+        print("Leave", location)
+        pass
+
+    def wheelEvent(self, a0: QtGui.QWheelEvent) -> None:
+        steps = a0.angleDelta().y() // 120
+        self.scroll_event.emit(steps)
+        return super().wheelEvent(a0)
 
     def mousePressEvent(self, a0: QtGui.QMouseEvent) -> None:
         click = (a0.localPos().x(), a0.localPos().y())
@@ -299,6 +347,7 @@ class VideoWidget(QWidget): #QDock
     mouse_down = pyqtSignal(tuple)
     mouse_move = pyqtSignal(tuple)
     mouse_up = pyqtSignal(tuple)
+    scroll_event = pyqtSignal(int)
 
     def __init__(self, name="Video", path=None, toolbar=None):
         super().__init__()
@@ -333,7 +382,7 @@ class VideoWidget(QWidget): #QDock
         self.buttonRowLayout.addWidget(self.playButton)
         # Progress Bar
         self.progressSlider = QSlider(Qt.Horizontal)
-        self.progressSlider.setRange(0, self.video.number_of_frames)
+        self.progressSlider.setRange(0, int(self.video.number_of_frames-1))
         self.progressSlider.sliderMoved.connect(self.setPosition) # set position when user moves slider
         self.progressSlider.sliderPressed.connect(self.video.pause) # pause when user presses slider
         self.video.positionChanged.connect(self.progressSlider.setValue) # update the slider as video plays
@@ -343,6 +392,7 @@ class VideoWidget(QWidget): #QDock
         self.video.mouse_down.connect(self.mouse_down.emit)
         self.video.mouse_move.connect(self.mouse_move.emit)
         self.video.mouse_up.connect(self.mouse_up.emit)
+        self.video.scroll_event.connect(self.scroll_event.emit)
 
         # Register with Toolbar
         toolbar.register_video(self)
@@ -372,6 +422,9 @@ class VideoWidget(QWidget): #QDock
     def setPosition(self, pos):
         ''' Sets the current playback position of the video '''
         self.video.setPosition(pos)
+
+    def rerender(self):
+        self.video.rerender()
 
     # def __onVideoDurationChange(self, duration):
     #     self.progressSlider.setRange(0, duration)

@@ -12,9 +12,8 @@ class Toolbar (QWidget):
         super().__init__(parent)
         self.video_blurring_window = video_blurring_window
         self.setLayout(QVBoxLayout())
-        self.setStyleSheet("border:1px solid red")
+        # self.setStyleSheet("border:1px solid red")
 
-        self.active_tool = None
 
         ## Create Buttons
         # Blur brush
@@ -32,11 +31,15 @@ class Toolbar (QWidget):
         self.layout().addWidget(self.eraser.button)
         self.eraser.clicked.connect(self.toggle_constant_blur)
 
+
+        self.active_tool = self.blur_brush
+
     def register_video(self, videoWidget):
         print("Registering Video", videoWidget)
         videoWidget.mouse_down.connect(lambda data: self.on_mouse_down(data[0], data[1]))
         videoWidget.mouse_move.connect(lambda data: self.on_mouse_move(data[0], data[1]))
         videoWidget.mouse_up.connect(lambda data: self.on_mouse_up(data[0], data[1]))
+        videoWidget.scroll_event.connect(self.on_brush_size_changed)
         # videos = video_blurring_window.videoSpace.findChildren(VideoWidget, name="VideoWidget")
 
     def on_mouse_down(self, video, click_location):
@@ -47,6 +50,13 @@ class Toolbar (QWidget):
 
     def on_mouse_up(self, video, click_location):
         self.active_tool.mouse_up(video, click_location)
+
+    def on_brush_size_changed(self, d_size):
+        self.active_tool.brush_size += d_size/100
+        if self.active_tool.brush_size <= 0:
+            self.active_tool.brush_size = 0
+
+        print("Brush size set to", self.active_tool.brush_size)
 
 
     def toggle_blur_brush(self):

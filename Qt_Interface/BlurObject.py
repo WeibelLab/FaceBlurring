@@ -17,9 +17,12 @@ class BlurStrand:
     def __str__(self) -> str:
         return self.__repr__()
 
-    def complete(self):
+    def complete(self, simplify=True):
         self.start_frame, self.end_frame = self.__points[0].index, self.__points[-1].index
+        if simplify:
+            self.simplify()
 
+    def simplify(self):
         # Clean up data
 
         # Get repeat frames and average the position
@@ -37,14 +40,10 @@ class BlurStrand:
                 # Add to new list
                 consolidated_point = BlurPoint(ps[0].index, (x, y), size, ps[0].resolution)
                 consolidated.append(consolidated_point)
-                print("adding consolidated point", consolidated_point.index)
 
                 # Fill in the blanks
-                if (point.index - ps[0].index - 1 != 0):
-                    print("Filling gap between", ps[0].index, "and", point.index)
                 for i in range(point.index - ps[0].index -1):
                     index = consolidated_point.index + i + 1
-                    print("\tadding index", index)
                     consolidated.append(BlurPoint(
                         index,
                         (consolidated_point.x, consolidated_point.y),
@@ -59,12 +58,8 @@ class BlurStrand:
                 ps.append(point)
         
 
-        print("Blur from", self.start_frame, "to", self.end_frame)
-        for point in self.__points:
-            print("\t", point)
-        print("Consolidated to")
-        for point in consolidated:
-            print("\t", point)
+        print("Blur from", self.start_frame, "to", self.end_frame, "of", self.video.number_of_frames, "frames")
+        print("p[0]", consolidated[0], "p[last]", consolidated[-1])
 
         self.__points = consolidated
 
@@ -88,7 +83,6 @@ class BlurPoint:
         self.size = size
 
         self.resolution = video_resolution
-        print("\tSaved at {}. Frame {}".format((self.x, self.y), self.index))
 
     @property
     def stroke_size(self):
@@ -115,6 +109,9 @@ class BlurPoint:
         y_end = int(self.y + self.stroke_size/2)
         x_start = int(self.x - self.stroke_size/2)
         x_end = int(self.x + self.stroke_size/2)
+
+        if (y_start == y_end or x_start == x_end):
+            return
         
         frame[y_start:y_end, x_start:x_end] = cv2.blur(
             frame[y_start:y_end, x_start:x_end],
