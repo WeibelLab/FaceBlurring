@@ -8,7 +8,7 @@ from PyQt5.QtGui import QCursor, QFont, QImage, QPixmap
 
 import cv2, os, shutil, atexit, numpy, time
 from BlurObject import *
-
+from Cursor import Cursor
 
 
 class VideoThread(QThread):
@@ -113,8 +113,11 @@ class VideoThread(QThread):
         else:
             raise Exception("index {} is out of the video bounds 0 -> {}".format(frame_index, self.number_of_frames))
 
-    def rerender(self):
+    def reblit(self):
         self.set_frame(self.current_frame)
+
+    def rerender(self):
+        self.render_frame()
 
     def updateSize(self, x, y):
         aspect_ratio = self.resolution[0] / self.resolution[1]
@@ -140,7 +143,7 @@ class Video(QLabel):
     mouse_down = pyqtSignal(tuple)
     mouse_move = pyqtSignal(tuple)
     mouse_up = pyqtSignal(tuple)
-    scroll_event = pyqtSignal(int)
+    scroll_event = pyqtSignal(int, float, float)
 
     def __init__(self, parent=None, video="./SampleVideo.mp4"):
         super().__init__(parent)
@@ -181,7 +184,8 @@ class Video(QLabel):
         self._blur_object = None
 
         # Set Cursor
-        self.setCursor(QCursor(Qt.CrossCursor))
+        self.setCursor(Cursor())
+        # self.setCursor(QCursor(Qt.CrossCursor))
         # cursor_size = self.cursor().pixmap().size()
         # self.cursor().pixmap().load("../assets/erase.png")
         # print("Cursor size",cursor_size.width(), cursor_size.height())
@@ -212,6 +216,10 @@ class Video(QLabel):
     @property
     def position(self):
         return self.__image_update_thread.current_frame
+
+    @property
+    def frame(self):
+        return self.__image_update_thread.frame
 
     def __setImage(self, image):
         self.setPixmap(QPixmap.fromImage(image))
@@ -273,6 +281,9 @@ class Video(QLabel):
     def setPosition(self, frame):
         self.__image_update_thread.set_frame(frame)
 
+    def reblit(self):
+        self.__image_update_thread.reblit()
+
     def rerender(self):
         self.__image_update_thread.rerender()
 
@@ -317,7 +328,7 @@ class Video(QLabel):
 
     def wheelEvent(self, a0: QtGui.QWheelEvent) -> None:
         steps = a0.angleDelta().y() // 120
-        self.scroll_event.emit(steps)
+        self.scroll_event.emit(steps, a0.position().x(), a0.position().y())
         return super().wheelEvent(a0)
 
     def mousePressEvent(self, a0: QtGui.QMouseEvent) -> None:
@@ -347,7 +358,7 @@ class VideoWidget(QWidget): #QDock
     mouse_down = pyqtSignal(tuple)
     mouse_move = pyqtSignal(tuple)
     mouse_up = pyqtSignal(tuple)
-    scroll_event = pyqtSignal(int)
+    scroll_event = pyqtSignal(Video, int, float, float)
 
     def __init__(self, name="Video", path=None, toolbar=None):
         super().__init__()
@@ -392,7 +403,7 @@ class VideoWidget(QWidget): #QDock
         self.video.mouse_down.connect(self.mouse_down.emit)
         self.video.mouse_move.connect(self.mouse_move.emit)
         self.video.mouse_up.connect(self.mouse_up.emit)
-        self.video.scroll_event.connect(self.scroll_event.emit)
+        self.video.scroll_event.connect(lambda val, x, y: self.scroll_event.emit(self.video, val, x, y))
 
         # Register with Toolbar
         toolbar.register_video(self)
@@ -423,8 +434,8 @@ class VideoWidget(QWidget): #QDock
         ''' Sets the current playback position of the video '''
         self.video.setPosition(pos)
 
-    def rerender(self):
-        self.video.rerender()
+    def reblit(self):
+        self.video.reblit()
 
     # def __onVideoDurationChange(self, duration):
     #     self.progressSlider.setRange(0, duration)

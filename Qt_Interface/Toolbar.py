@@ -51,10 +51,11 @@ class Toolbar (QWidget):
     def on_mouse_up(self, video, click_location):
         self.active_tool.mouse_up(video, click_location)
 
-    def on_brush_size_changed(self, d_size):
-        self.active_tool.brush_size += d_size/100
+    def on_brush_size_changed(self, video, d_size, x, y):
+        self.active_tool.brush_size += d_size*5
         if self.active_tool.brush_size <= 0:
             self.active_tool.brush_size = 0
+        self.active_tool.mouse_scroll(video, d_size, x, y)
 
         print("Brush size set to", self.active_tool.brush_size)
 

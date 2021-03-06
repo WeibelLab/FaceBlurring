@@ -86,7 +86,7 @@ class BlurPoint:
 
     @property
     def stroke_size(self):
-        return self.size * self.resolution[0]
+        return self.size
 
     def get(self):
         '''

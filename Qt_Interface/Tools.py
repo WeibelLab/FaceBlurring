@@ -3,6 +3,7 @@ from abc import abstractmethod
 from PyQt5.QtCore import QRect, Qt
 from PyQt5.QtGui import QIcon, QPixmap
 from PyQt5.QtWidgets import QToolButton, QWidget
+import cv2
 
 from BlurObject import *
 from Video import Video
@@ -20,22 +21,30 @@ class Tool:
         self.tools.append(self.button)
         Tool.tools.append(self)
 
-        self.brush_size = 0.1
+        self.brush_size = 150
 
     @property
     def clicked(self):
         return self.button.clicked
 
     @abstractmethod
-    def mouse_down(self, data: tuple) -> None:
+    def mouse_down(self, video, location) -> None:
         pass
 
     @abstractmethod
-    def mouse_move(self, data: tuple) -> None:
+    def mouse_move(self, video, location) -> None:
         pass
 
     @abstractmethod
-    def mouse_up(self, data: tuple) -> None:
+    def mouse_up(self, video, location) -> None:
+        pass
+
+    def mouse_scroll(self, video, value, x, y) -> None:
+        # Show new size
+        x1, y1 = int(x-self.brush_size/2), int(y-self.brush_size/2)
+        x2, y2 = int(x+self.brush_size/2), int(y+self.brush_size/2)
+        cv2.rectangle(video.frame, (x1, y1), (x2, y2), (0,0,0), 2)
+        video.rerender()
         pass
 
     def on_active_tool_changed(self, tool) -> None:
@@ -73,7 +82,7 @@ class BlurBrush(Tool):
         video._blur_object.complete()
         video.newFrame.connect(video._blur_object.checkBlurFrame, type=Qt.DirectConnection)
         video._blur_object = None
-        video.rerender()
+        video.reblit()
 
 class ConstantBlur(Tool):
     icon_path = "C:/Users/tlsha/GitHub/FaceBlurring/assets/select.png"
@@ -104,7 +113,7 @@ class ConstantBlur(Tool):
         video._blur_object.complete(simplify=False)
         video.newFrame.connect(video._blur_object.checkBlurFrame, type=Qt.DirectConnection)
         video._blur_object = None
-        video.rerender()
+        video.reblit()
 
 class Eraser(Tool):
     icon_path = "C:/Users/tlsha/GitHub/FaceBlurring/assets/eraser.png"

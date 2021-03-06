@@ -1,6 +1,8 @@
 from PyQt5 import QtCore
+from PyQt5.QtGui import QBitmap, QCursor, QPixmap
 from PyQt5.QtWidgets import QApplication, QDockWidget, QHBoxLayout, QLabel, QMainWindow, QPushButton, QScrollArea, QVBoxLayout, QWidget
 import Video, Sidebar, Toolbar
+from Cursor import *
 
 class VideoBlurring(QWidget):
     def __init__(self):
