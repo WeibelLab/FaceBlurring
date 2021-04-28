@@ -112,6 +112,16 @@ class BlurPoint:
 
         if (y_start == y_end or x_start == x_end):
             return
+
+        # account for being out of frame
+        if (y_start < 0):
+            y_start = 0
+        if (x_start < 0):
+            x_start = 0
+        if (y_end > frame.shape[0]):
+            y_end = frame.shape[0]
+        if (x_end > frame.shape[1]):
+            x_end = frame.shape[1]
         
         frame[y_start:y_end, x_start:x_end] = cv2.blur(
             frame[y_start:y_end, x_start:x_end],

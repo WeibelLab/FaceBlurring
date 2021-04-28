@@ -21,6 +21,7 @@ class VideoThread(QThread):
         super().__init__(parent)
         self.__kill = False
         self.mutex = QMutex()
+        self.__exporter = None
 
         self.video = video
         self.fps = self.video.get(cv2.CAP_PROP_FPS)
@@ -28,7 +29,7 @@ class VideoThread(QThread):
         self.output_resolution = self.resolution
         
         # play state
-        self.number_of_frames = self.video.get(cv2.CAP_PROP_FRAME_COUNT)
+        self.number_of_frames = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
         self.current_frame = 0
         self.__is_playing = False
         self.__frame = None
@@ -67,9 +68,68 @@ class VideoThread(QThread):
                         self.current_frame += 1
 
                         self.mutex.unlock()
-                        self.newFrame.emit(self.current_frame, self.__frame)
+                        if ret:
+                            self.newFrame.emit(self.current_frame, self.__frame)
             else:
                 time.sleep(1/self.fps) # do nothing
+
+    def export(self, path):
+        # Setup Exporter
+        print("Exporting to", path)
+
+        startPosition = self.current_frame
+        resolution = tuple(map(int, self.resolution))
+        self.__exporter = cv2.VideoWriter(
+                path, 
+                cv2.VideoWriter_fourcc(*"MJPG"), # TODO: move to H264 and .m4a 
+                self.fps, 
+                resolution)
+
+        # Move video to beginning and listen for frames to export
+        self.pause()
+        self.newFrame.connect(self.__exportFrame)
+        self.set_frame(0)
+
+        # Start reading frames
+        self.mutex.lock()
+        ret, self.__frame = self.video.read()
+        self.mutex.unlock()
+        self.newFrame.emit(self.current_frame, self.__frame)
+        self.render_frame()
+        while ret:
+            # self.render_frame() # TODO: remove this. Don't need to render
+
+            # Wait and get next frame
+            print("Exporting Frame", self.current_frame, "of", self.number_of_frames-1)
+            # time.sleep(1/self.fps) # TODO: remove this
+
+            if (self.current_frame >= self.number_of_frames-1):
+                print("Rendered Full Video")
+                self.pause()
+                break # finished video
+            else: 
+                self.mutex.lock()
+                ret, self.__frame = self.video.read()
+                self.current_frame += 1
+
+                self.mutex.unlock()
+                if ret:
+                    self.newFrame.emit(self.current_frame, self.__frame)
+        
+        print("Render loop closed")
+        # Close writer and remove listeners
+        self.__exporter.release()
+        self.__exporter = None
+        self.newFrame.disconnect(self.__exportFrame)
+        print("Writer Closed")
+        self.set_frame(startPosition)
+
+    def __exportFrame(self, index, frame):
+        if (self.__exporter != None):
+            self.mutex.lock()
+            self.__exporter.write(frame)
+            self.mutex.unlock()
+
 
     def play(self):
         if self.playing:
@@ -224,6 +284,9 @@ class Video(QLabel):
     def __setImage(self, image):
         self.setPixmap(QPixmap.fromImage(image))
 
+    def export(self, path):
+        self.__image_update_thread.export(path)
+
     def setFixedSize(self, x, y):
         # Constrain size to video aspect ratio
         aspect_ratio = self.resolution[0] / self.resolution[1]
@@ -353,6 +416,7 @@ class Video(QLabel):
 
 
 class VideoWidget(QWidget): #QDock
+    Widgets = []
 
     # Passthrough click events
     mouse_down = pyqtSignal(tuple)
@@ -407,6 +471,8 @@ class VideoWidget(QWidget): #QDock
 
         # Register with Toolbar
         toolbar.register_video(self)
+        VideoWidget.Widgets.append(self)
+        self.destroyed.connect(lambda: VideoWidget.Widgets.remove(self)) # TODO: check if this works
 
     @property
     def display_resolution(self):
@@ -415,6 +481,9 @@ class VideoWidget(QWidget): #QDock
     @property
     def video_resolution(self):
         return self.video.resolution
+
+    def pause(self):
+        self.video.pause()
 
     def play(self):
         ''' plays or pauses video '''

@@ -1,9 +1,10 @@
 
 from Video import VideoWidget
 from PyQt5.QtCore import QDir
-from PyQt5.QtWidgets import QDockWidget, QFileDialog, QHBoxLayout, QPushButton, QWidget
+from PyQt5.QtWidgets import QDockWidget, QFileDialog, QVBoxLayout, QPushButton, QWidget
 from PyQt5.QtCore import Qt
 import os, shutil, atexit
+import cv2
 
 class SidebarWidget(QWidget): #QDock
 
@@ -11,7 +12,7 @@ class SidebarWidget(QWidget): #QDock
         QWidget.__init__(self, parent)
         self.video_blurring_window = video_blurring_window
         self.metaObject().className()
-        self.setLayout(QHBoxLayout())
+        self.setLayout(QVBoxLayout())
 
         # print(help(self))
         # self.setAttribute("className", "SidebarWidget") # FIXME: works?
@@ -20,6 +21,11 @@ class SidebarWidget(QWidget): #QDock
         self.loadButton.setText("Load File")
         self.loadButton.clicked.connect(self.loadVideo)
         self.layout().addWidget(self.loadButton)
+
+        self.exportButton = QPushButton()
+        self.exportButton.setText("Export")
+        self.exportButton.clicked.connect(self.exportVideos)
+        self.layout().addWidget(self.exportButton)
 
         self.setMinimumSize(300, 800)
 
@@ -76,3 +82,14 @@ class SidebarWidget(QWidget): #QDock
         instance = VideoWidget(filename, path=path, toolbar=sidebar.video_blurring_window.toolbar)
         instance.playButton.setEnabled(True)
         return instance
+
+    def exportVideos(self):
+        path = QFileDialog.getExistingDirectory(None, "Select Save Location", QDir.currentPath())
+        if (not path): # user cancels selection
+            return None
+        print("Exporting to", path)
+
+        # Render each video with blurring
+        for widget in VideoWidget.Widgets:
+            outFilename = os.path.join(path, "out_" + os.path.basename(widget.video._video_path)+".avi")
+            widget.video.export(outFilename)
