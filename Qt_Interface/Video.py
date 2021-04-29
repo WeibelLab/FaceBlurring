@@ -3,7 +3,7 @@ from PyQt5 import QtGui
 from PyQt5.QtCore import QDir, QEvent, QUrl, Qt, QThread, pyqtSignal, QMutex
 from PyQt5.QtMultimedia import QMediaContent, QMediaPlayer
 from PyQt5.QtMultimediaWidgets import QVideoWidget
-from PyQt5.QtWidgets import QDockWidget, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSlider, QStackedLayout, QWidget, QVBoxLayout
+from PyQt5.QtWidgets import QDockWidget, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSlider, QStackedLayout, QWidget, QVBoxLayout, QProgressBar
 from PyQt5.QtGui import QCursor, QFont, QImage, QPixmap
 
 import cv2, os, shutil, atexit, numpy, time
@@ -32,6 +32,7 @@ class VideoThread(QThread):
         self.number_of_frames = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
         self.current_frame = 0
         self.__is_playing = False
+        self.__is_exporting = False
         self.__frame = None
 
         if video is None:
@@ -53,7 +54,7 @@ class VideoThread(QThread):
         self.render_frame()
 
         while not self.__kill:
-            if self.playing:
+            if self.playing and not self.__is_exporting:
                 while ret and self.playing:
                     self.render_frame()
 
@@ -70,18 +71,54 @@ class VideoThread(QThread):
                         self.mutex.unlock()
                         if ret:
                             self.newFrame.emit(self.current_frame, self.__frame)
+            elif self.__is_exporting:
+                while ret and self.__is_exporting:
+                    # print("Exporting Frame", self.current_frame, "of", self.number_of_frames-1)
+                    if (self.current_frame >= self.number_of_frames-1): # FIXME: never gets called
+                        print("Rendered Full Video")
+                        self.__is_exporting = False
+                    else: 
+                        self.mutex.lock()
+                        ret, self.__frame = self.video.read()
+                        self.current_frame += 1
+                        self.__export_progress_bar.setValue(self.current_frame)
+
+                        self.mutex.unlock()
+                        if ret:
+                            self.newFrame.emit(self.current_frame, self.__frame)
+                        else: # FIXME: shouldn't be getting called but does
+                            ret = True
+                            self.__is_exporting = False
+                
+                self.__finishExport()
+                print("Export done")
             else:
                 time.sleep(1/self.fps) # do nothing
 
-    def export(self, path):
-        # Setup Exporter
+    def __finishExport(self):
+        print("Render loop closed")
+        # Close writer and remove listeners
+        self.__exporter.release()
+        self.__exporter = None
+        self.__is_exporting = False
+        self.newFrame.disconnect(self.__exportFrame)
+        print("Writer Closed")
+        self.set_frame(self.__export_start_position)
+        # remove progress bar
+        self.__export_progress_bar.setValue(self.number_of_frames)
+        self.__export_progress_bar.parent().layout().removeWidget(self.__export_progress_bar)
+        self.__export_progress_bar.setParent(None)
+        self.__export_progress_bar.deleteLater()
+
+    def export(self, path, progressbar):
         print("Exporting to", path)
 
-        startPosition = self.current_frame
+        # Get export information and video writer
+        self.__export_start_position = self.current_frame
         resolution = tuple(map(int, self.resolution))
         self.__exporter = cv2.VideoWriter(
                 path, 
-                cv2.VideoWriter_fourcc(*"MJPG"), # TODO: move to H264 and .m4a 
+                cv2.VideoWriter_fourcc(*"X264"),
                 self.fps, 
                 resolution)
 
@@ -89,40 +126,20 @@ class VideoThread(QThread):
         self.pause()
         self.newFrame.connect(self.__exportFrame)
         self.set_frame(0)
+        self.positionChanged.emit(self.current_frame)
 
-        # Start reading frames
+        # Create progress bar
+        self.__export_progress_bar = progressbar
+        self.__export_progress_bar.setMaximum(self.number_of_frames)
+        self.__export_progress_bar.setValue(0)
+
+        # Read first frame
         self.mutex.lock()
         ret, self.__frame = self.video.read()
         self.mutex.unlock()
         self.newFrame.emit(self.current_frame, self.__frame)
-        self.render_frame()
-        while ret:
-            # self.render_frame() # TODO: remove this. Don't need to render
-
-            # Wait and get next frame
-            print("Exporting Frame", self.current_frame, "of", self.number_of_frames-1)
-            # time.sleep(1/self.fps) # TODO: remove this
-
-            if (self.current_frame >= self.number_of_frames-1):
-                print("Rendered Full Video")
-                self.pause()
-                break # finished video
-            else: 
-                self.mutex.lock()
-                ret, self.__frame = self.video.read()
-                self.current_frame += 1
-
-                self.mutex.unlock()
-                if ret:
-                    self.newFrame.emit(self.current_frame, self.__frame)
-        
-        print("Render loop closed")
-        # Close writer and remove listeners
-        self.__exporter.release()
-        self.__exporter = None
-        self.newFrame.disconnect(self.__exportFrame)
-        print("Writer Closed")
-        self.set_frame(startPosition)
+        # self.render_frame()
+        self.__is_exporting = True # causes thread to start exporting
 
     def __exportFrame(self, index, frame):
         if (self.__exporter != None):
@@ -284,8 +301,8 @@ class Video(QLabel):
     def __setImage(self, image):
         self.setPixmap(QPixmap.fromImage(image))
 
-    def export(self, path):
-        self.__image_update_thread.export(path)
+    def export(self, path, progressbar):
+        self.__image_update_thread.export(path, progressbar)
 
     def setFixedSize(self, x, y):
         # Constrain size to video aspect ratio
@@ -505,6 +522,15 @@ class VideoWidget(QWidget): #QDock
 
     def reblit(self):
         self.video.reblit()
+
+    def export(self, filename) :
+        # QThread.thread()
+        # threading.Thread(target=self.video.export, args=(filename, ))
+        self.__export_progress_bar = QProgressBar()
+        self.layout().addWidget(self.__export_progress_bar)
+        self.__export_progress_bar.setGeometry(200, 80, 250, 20)
+        self.video.export(filename, self.__export_progress_bar)
+
 
     # def __onVideoDurationChange(self, duration):
     #     self.progressSlider.setRange(0, duration)

@@ -21,6 +21,12 @@ class VideoBlurring(QWidget):
         self.timeline.setMinimumHeight(100)
         self.timeline.setObjectName("Timeline Container")
 
+        # Status Bar
+        self.statusbar = QWidget()
+        self.layout().addWidget(self.statusbar)
+        self.statusbar.setFixedHeight(50)
+        self.statusbar.setObjectName("Status Bar")
+
         # Center for videos
         self.videoSpace = QWidget() #QMainWindow()
         self.videoSpace.setLayout(QVBoxLayout())

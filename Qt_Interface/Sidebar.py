@@ -91,5 +91,5 @@ class SidebarWidget(QWidget): #QDock
 
         # Render each video with blurring
         for widget in VideoWidget.Widgets:
-            outFilename = os.path.join(path, "out_" + os.path.basename(widget.video._video_path)+".avi")
-            widget.video.export(outFilename)
+            outFilename = os.path.join(path, os.path.splitext(os.path.basename(widget.video._video_path))[0]+"_blurred.mp4")
+            widget.export(outFilename)
