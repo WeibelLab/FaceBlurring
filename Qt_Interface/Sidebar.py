@@ -35,7 +35,7 @@ class SidebarWidget(QWidget): #QDock
 
 
     def loadVideo(self):
-        path, _ = QFileDialog.getOpenFileName(None, "Open Movie", QDir.currentPath())
+        path, _ = QFileDialog.getOpenFileName(None, "Open Movie", QDir.currentPath() + "../sample_assets/")
         if (not path): # user cancels selection
             return None
 

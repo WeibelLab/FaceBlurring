@@ -29,7 +29,12 @@ class Toolbar (QWidget):
         # Eraser
         self.eraser = Eraser()
         self.layout().addWidget(self.eraser.button)
-        self.eraser.clicked.connect(self.toggle_constant_blur)
+        self.eraser.clicked.connect(self.toggle_erase)
+
+        # Split
+        self.split = SplitStrand()
+        self.layout().addWidget(self.split.button)
+        self.split.clicked.connect(self.toggle_split)
 
 
         self.active_tool = self.blur_brush
@@ -42,13 +47,13 @@ class Toolbar (QWidget):
         videoWidget.scroll_event.connect(self.on_brush_size_changed)
         # videos = video_blurring_window.videoSpace.findChildren(VideoWidget, name="VideoWidget")
 
-    def on_mouse_down(self, video, click_location):
+    def on_mouse_down(self, video: Video, click_location: tuple):
         self.active_tool.mouse_down(video, click_location)
     
-    def on_mouse_move(self, video, click_location):
+    def on_mouse_move(self, video: Video, click_location: tuple):
         self.active_tool.mouse_move(video, click_location)
 
-    def on_mouse_up(self, video, click_location):
+    def on_mouse_up(self, video: Video, click_location: tuple):
         self.active_tool.mouse_up(video, click_location)
 
     def on_brush_size_changed(self, video, d_size, x, y):
@@ -73,4 +78,9 @@ class Toolbar (QWidget):
     def toggle_erase(self):
         print("Enable Eraser")
         self.active_tool = self.eraser
+        self.active_tool_changed.emit(self.active_tool)
+
+    def toggle_split(self):
+        print("Enable Splitter")
+        self.active_tool = self.split
         self.active_tool_changed.emit(self.active_tool)

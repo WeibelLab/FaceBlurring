@@ -65,8 +65,6 @@ class BlurBrush(Tool):
 
     def mouse_down(self, video, location):
         video._blur_object = BlurStrand(video, video.resolution)
-        video._blur_strands.append(video._blur_object)
-
         self.mouse_move(video, location)
     
     def mouse_move(self, video, location):
@@ -80,7 +78,6 @@ class BlurBrush(Tool):
     def mouse_up(self, video, location):
         self.mouse_move(video, location)
         video._blur_object.complete()
-        video.newFrame.connect(video._blur_object.checkBlurFrame, type=Qt.DirectConnection)
         video._blur_object = None
         video.reblit()
 
@@ -99,7 +96,6 @@ class ConstantBlur(Tool):
     def mouse_up(self, video, location):
 
         video._blur_object = BlurStrand(video, video.resolution)
-        video._blur_strands.append(video._blur_object)
         
         # Blur all frames
         print("Blurring from frame 0 to frame", int(video.number_of_frames))
@@ -111,15 +107,36 @@ class ConstantBlur(Tool):
             )
 
         video._blur_object.complete(simplify=False)
-        video.newFrame.connect(video._blur_object.checkBlurFrame, type=Qt.DirectConnection)
         video._blur_object = None
         video.reblit()
 
 class Eraser(Tool):
-    icon_path = "C:/Users/tlsha/GitHub/FaceBlurring/assets/eraser.png"
+    icon_path = "C:/Users/tlsha/GitHub/FaceBlurring/assets/erase.png"
 
     def __init__(self):
         super().__init__()
+
+    def mouse_down(self, video, location):
+        pass
+
+    def mouse_move(self, video, location):
+        pass
+
+    def mouse_up(self, video, location):
+        # Check to see if cursor intersects with any blur points
+        for strand in video._blur_strands:
+            for point in strand.checkBlurFrame(video.position):
+                # Get BlurPoint region
+                ret = point.get_blur_region(video.frame)
+                if ret is None: continue
+                x_start, y_start, x_end, y_end = ret
+                print("Blur region (x {}, y {}, x end {}, y end {}). Click at ({}, {})".format(x_start, y_start, x_end, y_end, *location))
+
+                # Check if click is within a blur
+                if (x_start < location[0] < x_end) and (y_start < location[1] < y_end):
+                    strand.destroy()
+
+                video.setPosition(video.position)
 
 class SplitStrand(Tool):
     '''
@@ -130,3 +147,29 @@ class SplitStrand(Tool):
 
     def __init__(self):
         super().__init__()
+
+    def mouse_down(self, video, location):
+        print(location)
+        pass
+
+    def mouse_move(self, video, location):
+        pass
+
+    def mouse_up(self, video, location):
+        # Check to see if cursor intersects with any blur points
+        for strand in video._blur_strands:
+            for point in strand.checkBlurFrame(video.position):
+                # Get BlurPoint region
+                ret = point.get_blur_region(video.frame)
+                if ret is None: continue
+                x_start, y_start, x_end, y_end = ret
+                print("Blur region (x {}, y {}, x end {}, y end {}). Click at ({}, {})".format(x_start, y_start, x_end, y_end, *location))
+
+                # Check if click is within a blur
+                if (x_start < location[0] < x_end) and (y_start < location[1] < y_end):
+                    print("\tSplit")
+                    newStrands = strand.split_on(video.position)
+
+                    return # only split one at a time
+
+            

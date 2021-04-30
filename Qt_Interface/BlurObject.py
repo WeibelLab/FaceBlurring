@@ -1,3 +1,4 @@
+from PyQt5.QtCore import Qt
 import numpy, cv2
 
 class BlurStrand:
@@ -7,6 +8,7 @@ class BlurStrand:
         self.video_resolution = video_resolution
         self.start_frame = None
         self.end_frame = None
+        self.video._blur_strands.append(self)
 
     def addPoint(self, frame, position, size):
         self.__points.append(BlurPoint(frame, position, size, self.video_resolution))
@@ -21,6 +23,8 @@ class BlurStrand:
         self.start_frame, self.end_frame = self.__points[0].index, self.__points[-1].index
         if simplify:
             self.simplify()
+        
+        self.video.newFrame.connect(self.blurFrame, type=Qt.DirectConnection)
 
     def simplify(self):
         # Clean up data
@@ -63,12 +67,41 @@ class BlurStrand:
 
         self.__points = consolidated
 
-    def checkBlurFrame(self, index, frame):
+    def checkBlurFrame(self, index) -> list:
         if (self.start_frame <= index <= self.end_frame):
             toblur = [point for point in self.__points if point.index == index]
+            return toblur
+        return []
 
-            for pt in toblur:
-                pt.blur_frame(frame)
+    def blurFrame(self, index, frame):
+        toblur = self.checkBlurFrame(index)
+        for pt in toblur:
+            pt.blur_frame(frame)
+
+    def split_on(self, frame_index):
+        ''' Splits the points in this blur object into 2 new blur objects.'''
+        point = self.checkBlurFrame(frame_index)[0]
+        pointIndex = self.__points.index(point)
+        if pointIndex is 0:
+            return [self]
+
+        # Create a and b strands
+        aStrand = BlurStrand(self.video, self.video_resolution)
+        bStrand = BlurStrand(self.video, self.video_resolution)
+        # Split points between a and b strands
+        aStrand.__points = self.__points[:pointIndex]
+        bStrand.__points = self.__points[pointIndex:]
+        aStrand.complete(False)
+        bStrand.complete(False)
+        # Destroy self
+        self.destroy()
+        return [aStrand, bStrand]
+
+    def destroy(self):
+        self.video.newFrame.disconnect(self.blurFrame)
+        self.video._blur_strands.remove(self)
+
+
 
 
 
@@ -100,28 +133,39 @@ class BlurPoint:
             "size": self.size
         }
 
-    def blur_frame(self, frame):
-        '''
-        Blurs the passed frame based on this objects parameters.
-        Passed frame should be a numpy array from opencv
-        '''
+    def get_blur_region(self, frame=None):
         y_start = int(self.y - self.stroke_size/2)
         y_end = int(self.y + self.stroke_size/2)
         x_start = int(self.x - self.stroke_size/2)
         x_end = int(self.x + self.stroke_size/2)
 
         if (y_start == y_end or x_start == x_end):
+            return None
+
+        if frame is not None:
+            # account for being out of frame
+            if (y_start < 0):
+                y_start = 0
+            if (x_start < 0):
+                x_start = 0
+            if (y_end > frame.shape[0]):
+                y_end = frame.shape[0]
+            if (x_end > frame.shape[1]):
+                x_end = frame.shape[1]
+
+        return (x_start, y_start, x_end, y_end)
+
+
+    def blur_frame(self, frame):
+        '''
+        Blurs the passed frame based on this objects parameters.
+        Passed frame should be a numpy array from opencv
+        '''
+        ret = self.get_blur_region(frame)
+        if ret is None:
             return
 
-        # account for being out of frame
-        if (y_start < 0):
-            y_start = 0
-        if (x_start < 0):
-            x_start = 0
-        if (y_end > frame.shape[0]):
-            y_end = frame.shape[0]
-        if (x_end > frame.shape[1]):
-            x_end = frame.shape[1]
+        x_start, y_start, x_end, y_end = ret
         
         frame[y_start:y_end, x_start:x_end] = cv2.blur(
             frame[y_start:y_end, x_start:x_end],
