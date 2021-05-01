@@ -1,6 +1,6 @@
 
 from PyQt5 import QtGui
-from PyQt5.QtCore import QDir, QEvent, QSize, QUrl, Qt, QThread, pyqtSignal, QMutex
+from PyQt5.QtCore import QDir, QEvent, QObject, QSize, QUrl, Qt, QThread, pyqtSignal, QMutex
 from PyQt5.QtMultimedia import QMediaContent, QMediaPlayer
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 from PyQt5.QtWidgets import QDockWidget, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSlider, QStackedLayout, QWidget, QVBoxLayout, QProgressBar
@@ -33,6 +33,8 @@ class VideoThread(QThread):
         self.current_frame = 0
         self.__is_playing = False
         self.__is_exporting = False
+        self.__exportWorker = None
+        self.__exportThread = None
         self.__frame = None
 
         if video is None:
@@ -46,15 +48,16 @@ class VideoThread(QThread):
     def frame(self):
         return self.__frame
 
+    @property
+    def duration(self):
+        return self.number_of_frames / self.fps
+
     def run(self):
-        self.mutex.lock()
-        ret, self.__frame = self.video.read()
-        self.mutex.unlock()
-        self.newFrame.emit(self.current_frame, self.__frame)
+        ret, frame = self.step()
         self.render_frame()
 
         while not self.__kill:
-            while ret and self.playing and not self.__is_exporting:
+            while not self.__kill and ret and self.playing and not self.__is_exporting:
                 self.render_frame()
 
                 # Wait and get next frame
@@ -65,79 +68,96 @@ class VideoThread(QThread):
                 else: 
                     ret, frame = self.step()
 
-            while ret and self.__is_exporting:
-                print("Exporting Frame", self.current_frame, "of", self.number_of_frames-1)
-                if (self.current_frame >= self.number_of_frames-1):
-                    self.__is_exporting = False
-                    self.__finishExport()
-                    print("Export done no ret failure :)")
-                    # break
-                else:
-                    ret, frame = self.step()
-                    self.__export_progress_bar.setValue(self.current_frame)
+            # while not self.__kill and ret and self.__is_exporting:
+            #     print("Exporting Frame", self.current_frame, "of", self.number_of_frames-1)
+            #     if (self.current_frame >= self.number_of_frames-1):
+            #         self.__is_exporting = False
+            #         self.__finishExport()
+            #         print("Export done no ret failure :)")
+            #     else:
+            #         ret, frame = self.step()
+            #         self.__export_progress_bar.setValue(self.current_frame)
 
-                if not ret:
-                    print("No return during export at frame {} / {}".format(self.current_frame-1, self.number_of_frames-1))
-                    ret = True
-                    self.__is_exporting = False
-                    self.__finishExport()
-                    print("Export done")
-                    # break
+            #     if not ret:
+            #         print("No return during export at frame {} / {}".format(self.current_frame-1, self.number_of_frames-1))
+            #         ret = True
+            #         self.__is_exporting = False
+            #         self.__finishExport()
+            #         print("Export done")
+            #         # break
             
-            while not self.playing and not self.__is_exporting:
+            while not self.__kill and not self.playing and not self.__is_exporting:
                 time.sleep(1/self.fps) # do nothing
-
-    def __finishExport(self):
-        print("Render loop closed")
-        # Close writer and remove listeners
-        self.__exporter.release()
-        self.__exporter = None
-        self.__is_exporting = False
-        self.newFrame.disconnect(self.__exportFrame)
-        print("Writer Closed")
-        self.set_frame(self.__export_start_position)
-        # remove progress bar
-        self.__export_progress_bar.setValue(self.number_of_frames)
-        self.__export_progress_bar.parent().layout().removeWidget(self.__export_progress_bar)
-        self.__export_progress_bar.setParent(None)
-        self.__export_progress_bar.deleteLater()
-
+        print("Video Thread Closing")
+    
     def export(self, path, progressbar):
-        print("Exporting to", path)
+        if self.__is_exporting or self.__exportWorker is not None or self.__exportThread is not None:
+            raise Exception("Must wait until previous export is finished")
 
-        # Get export information and video writer
-        self.__export_start_position = self.current_frame
-        resolution = tuple(map(int, self.resolution))
-        self.__exporter = cv2.VideoWriter(
-                path, 
-                cv2.VideoWriter_fourcc(*"X264"),
-                self.fps, 
-                resolution)
+        self.__is_exporting = True
+        self.__exportWorker = Exporter(progressbar, self, path)
+        self.__exportThread = QThread()
+        self.__exportWorker.moveToThread(self.__exportThread)
+        self.__exportWorker.start()
 
-        # Move video to beginning and listen for frames to export
-        self.pause()
-        self.newFrame.connect(self.__exportFrame)
-        self.set_frame(0)
-        self.positionChanged.emit(self.current_frame)
+        self.__exportWorker.exportComplete.connect(self.__export_end)
+        # self.__exportWorker.start()
+        
+    def __export_end(self):
+        self.__exportWorker.kill()
+        self.__exportThread.terminate()
+        self.__exportThread.wait()
+        
+        self.__is_exporting = False
+        self.__exportWorker = None
+        self.__exportThread = None
+    # def __finishExport(self):
+    #     print("Render loop closed")
+    #     # Close writer and remove listeners
+    #     self.__exporter.release()
+    #     self.__exporter = None
+    #     self.__is_exporting = False
+    #     self.newFrame.disconnect(self.__exportFrame)
+    #     print("Writer Closed")
+    #     self.set_frame(self.__export_start_position)
+    #     # remove progress bar
+    #     self.__export_progress_bar.setValue(self.number_of_frames)
+    #     self.__export_progress_bar.parent().layout().removeWidget(self.__export_progress_bar)
+    #     self.__export_progress_bar.setParent(None)
+    #     self.__export_progress_bar.deleteLater()
 
-        # Create progress bar
-        self.__export_progress_bar = progressbar
-        self.__export_progress_bar.setMaximum(self.number_of_frames)
-        self.__export_progress_bar.setValue(0)
+    # def export(self, path, progressbar):
+    #     print("Exporting to", path)
 
-        # Read first frame
-        self.mutex.lock()
-        ret, self.__frame = self.video.read()
-        self.mutex.unlock()
-        self.newFrame.emit(self.current_frame, self.__frame)
-        # self.render_frame()
-        self.__is_exporting = True # causes thread to start exporting
+    #     # Get export information and video writer
+    #     self.__export_start_position = self.current_frame
+    #     resolution = tuple(map(int, self.resolution))
+    #     self.__exporter = cv2.VideoWriter(
+    #             path, 
+    #             cv2.VideoWriter_fourcc(*"X264"),
+    #             self.fps, 
+    #             resolution)
 
-    def __exportFrame(self, index, frame):
-        if (self.__exporter != None):
-            self.mutex.lock()
-            self.__exporter.write(frame)
-            self.mutex.unlock()
+    #     # Move video to beginning and listen for frames to export
+    #     self.pause()
+    #     self.newFrame.connect(self.__exportFrame)
+    #     self.set_frame(0)
+    #     self.positionChanged.emit(self.current_frame)
+
+    #     # Create progress bar
+    #     self.__export_progress_bar = progressbar
+    #     self.__export_progress_bar.setMaximum(self.number_of_frames)
+    #     self.__export_progress_bar.setValue(0)
+
+    #     # Read first frame
+    #     self.step()
+    #     self.__is_exporting = True # causes thread to start exporting
+
+    # def __exportFrame(self, index, frame):
+    #     if (self.__exporter != None):
+    #         self.mutex.lock()
+    #         self.__exporter.write(frame)
+    #         self.mutex.unlock()
 
 
     def play(self):
@@ -166,7 +186,9 @@ class VideoThread(QThread):
 
         self.current_frame += 1
         if ret:
+            self.mutex.lock()
             self.newFrame.emit(self.current_frame, self.__frame)
+            self.mutex.unlock()
         return (ret, self.__frame)
 
     def render_frame(self):
@@ -210,6 +232,96 @@ class VideoThread(QThread):
             self.output_resolution
         ))
 
+    def kill(self):
+        self.__kill = True
+        if self.__exportWorker is not None:
+            self.__exportWorker.kill()
+        if self.__exportThread is not None:
+            self.__exportThread.terminate()
+            self.__exportThread.wait()
+
+        self.terminate()
+        self.wait()
+class Exporter(QThread):
+    exportComplete = pyqtSignal()
+
+    def __init__(self, progressbar: QProgressBar, videoObject: VideoThread, path: str):
+        super().__init__()
+        self.progressbar = progressbar
+        self.video = videoObject
+        self.path = path
+        self.running = True
+        videoObject.newFrame.connect(self.exportFrame)
+        print("Initialized Exporter Thread")
+
+    def run(self):
+        ret, frame = self.video.step()
+        while ret and self.running:
+            # print("Exporting Frame", self.video.current_frame, "of", self.video.number_of_frames-1)
+            if (self.video.current_frame >= self.video.number_of_frames-1):
+                break
+            elif (not ret):
+                break
+            else:
+                ret, frame = self.video.step()
+                self.progressbar.setValue(self.video.current_frame)
+                # print("Frame", ret, self.__frame[:4])
+        
+        self.__finishExport()
+        print("Export done")
+
+    def start(self):
+        super().start()
+        print("Exporting to", self.path)
+        print("Video has {} frames and lasts {} seconds".format(self.video.number_of_frames, self.video.duration))
+
+        # Get export information and video writer
+        self.__export_start_position = self.video.current_frame
+        resolution = tuple(map(int, self.video.resolution))
+        print("-"*50)
+        self.exporter = cv2.VideoWriter(
+                self.path, 
+                cv2.VideoWriter_fourcc(*"X264"),
+                self.video.fps, 
+                resolution)
+
+        # Move video to beginning and listen for frames to export
+        self.video.pause()
+        self.video.newFrame.connect(self.exportFrame)
+        self.video.set_frame(0)
+        # self.video.positionChanged.emit(self.video.current_frame)
+
+        # Create progress bar
+        self.progressbar.setMaximum(self.video.number_of_frames)
+        self.progressbar.setValue(0)
+
+        # if (ret):
+        #     self.__run()
+
+    def __finishExport(self):
+        # Close writer and remove listeners
+        self.exporter.release()
+        self.exporter = None
+        self.video.newFrame.disconnect(self.exportFrame)
+        print("Writer Closed")
+        self.video.set_frame(self.__export_start_position)
+        # remove progress bar
+        self.progressbar.setValue(self.video.number_of_frames)
+        self.progressbar.parent().layout().removeWidget(self.progressbar)
+        self.progressbar.setParent(None)
+        self.progressbar.deleteLater()
+
+        self.exportComplete.emit()
+
+    def exportFrame(self, index, frame):
+        if (self.exporter != None):
+            # print("Frame", index, frame[:4])
+            self.exporter.write(frame)
+
+    def kill(self):
+        self.running = False
+        self.terminate()
+        self.wait()
 
 class Video(QLabel):
 
@@ -418,6 +530,10 @@ class Video(QLabel):
         self.mouse_up.emit((self, frame_loc))
         return super().mouseReleaseEvent(a0)
 
+    def deleteLater(self):
+        print("Killing video thread")
+        self.__image_update_thread.kill()
+
 
 
 
@@ -441,6 +557,13 @@ class VideoWidget(QWidget): #QDock
         # Structure
         self.setLayout(QVBoxLayout())
         self.setObjectName("VideoWidget")
+
+        # Close button
+        self.closeButton = QPushButton()
+        self.closeButton.setText("X")
+        self.closeButton.setEnabled(True)
+        self.closeButton.clicked.connect(self.deleteLater)
+        self.layout().addWidget(self.closeButton)
 
         # Video
         self.videoContainer = QWidget()
@@ -527,3 +650,9 @@ class VideoWidget(QWidget): #QDock
 
     # def __onVideoDurationChange(self, duration):
     #     self.progressSlider.setRange(0, duration)
+
+    def deleteLater(self) -> None:
+        print("Deleting")
+        self.video.deleteLater()
+        print("Deleted Video")
+        return super().deleteLater()
