@@ -54,7 +54,7 @@ class VideoThread(QThread):
         self.render_frame()
 
         while not self.__kill:
-            while ret and self.playing and not self.__is_exporting:
+            while not self.__kill and ret and self.playing and not self.__is_exporting:
                 self.render_frame()
 
                 # Wait and get next frame
@@ -65,8 +65,8 @@ class VideoThread(QThread):
                 else: 
                     ret, frame = self.step()
 
-            while ret and self.__is_exporting:
-                print("Exporting Frame", self.current_frame, "of", self.number_of_frames-1)
+            while not self.__kill and ret and self.__is_exporting:
+                # print("Exporting Frame", self.current_frame, "of", self.number_of_frames-1)
                 if (self.current_frame >= self.number_of_frames-1):
                     self.__is_exporting = False
                     self.__finishExport()
@@ -84,7 +84,7 @@ class VideoThread(QThread):
                     print("Export done")
                     # break
             
-            while not self.playing and not self.__is_exporting:
+            while not self.__kill and not self.playing and not self.__is_exporting:
                 time.sleep(1/self.fps) # do nothing
 
     def __finishExport(self):
@@ -126,10 +126,7 @@ class VideoThread(QThread):
         self.__export_progress_bar.setValue(0)
 
         # Read first frame
-        self.mutex.lock()
-        ret, self.__frame = self.video.read()
-        self.mutex.unlock()
-        self.newFrame.emit(self.current_frame, self.__frame)
+        self.step()
         # self.render_frame()
         self.__is_exporting = True # causes thread to start exporting
 
@@ -167,6 +164,7 @@ class VideoThread(QThread):
         self.current_frame += 1
         if ret:
             self.newFrame.emit(self.current_frame, self.__frame)
+        
         return (ret, self.__frame)
 
     def render_frame(self):
@@ -209,6 +207,11 @@ class VideoThread(QThread):
             (x, y), x/y,
             self.output_resolution
         ))
+
+    def kill(self):
+        self.__kill = True
+        self.terminate()
+        self.wait()
 
 
 class Video(QLabel):
@@ -418,6 +421,9 @@ class Video(QLabel):
         self.mouse_up.emit((self, frame_loc))
         return super().mouseReleaseEvent(a0)
 
+    def deleteLater(self) -> None:
+        self.__image_update_thread.kill()
+        return super().deleteLater()
 
 
 
@@ -442,6 +448,13 @@ class VideoWidget(QWidget): #QDock
         self.setLayout(QVBoxLayout())
         self.setObjectName("VideoWidget")
 
+        # Close button
+        self.closeButton = QPushButton()
+        self.closeButton.setText("X")
+        self.closeButton.setEnabled(True)
+        self.closeButton.clicked.connect(self.deleteLater)
+        self.layout().addWidget(self.closeButton)
+        
         # Video
         self.videoContainer = QWidget()
         self.videoContainer.setLayout(QStackedLayout())
@@ -527,3 +540,9 @@ class VideoWidget(QWidget): #QDock
 
     # def __onVideoDurationChange(self, duration):
     #     self.progressSlider.setRange(0, duration)
+
+    def deleteLater(self) -> None:
+        print("Deleting")
+        self.video.deleteLater()
+        print("Deleted Video")
+        return super().deleteLater()

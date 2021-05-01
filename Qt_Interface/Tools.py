@@ -92,7 +92,6 @@ class BlurBrush(Tool):
             location, # blur location
             self.brush_size
         )
-        print(video)
 
     def mouse_up(self, video, location):
         self.mouse_move(video, location)
