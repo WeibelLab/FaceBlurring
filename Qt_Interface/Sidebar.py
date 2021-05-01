@@ -23,7 +23,7 @@ class SidebarWidget(QWidget): #QDock
         self.layout().addWidget(self.loadButton)
 
         self.exportButton = QPushButton()
-        self.exportButton.setText("Export")
+        self.exportButton.setText("Export All (broken)")
         self.exportButton.clicked.connect(self.exportVideos)
         self.layout().addWidget(self.exportButton)
 
@@ -35,15 +35,15 @@ class SidebarWidget(QWidget): #QDock
 
 
     def loadVideo(self):
-        path, _ = QFileDialog.getOpenFileName(None, "Open Movie", QDir.currentPath() + "../sample_assets/")
-        if (not path): # user cancels selection
+        paths, _ = QFileDialog.getOpenFileNames(None, "Open Movie", QDir.currentPath())
+        if not paths or len(paths) == 0: # user cancels selection
             return None
-
-        video = self._load(self, path)
-        if (isinstance(video, QDockWidget)):
-            self.videoSpace.addDockWidget(Qt.LeftDockWidgetArea, video)
-        else:
-            self.videoSpace.layout().addWidget(video)
+        for path in paths:
+            video = self._load(self, path)
+            if (isinstance(video, QDockWidget)):
+                self.videoSpace.addDockWidget(Qt.LeftDockWidgetArea, video)
+            else:
+                self.videoSpace.layout().addWidget(video)
         
     
     @staticmethod

@@ -11,4 +11,5 @@ app = QApplication([])
 
 window = VideoBlurring()
 window.show()
-app.exec_()
+app.exec()
+print("Closed")

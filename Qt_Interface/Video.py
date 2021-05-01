@@ -34,6 +34,7 @@ class VideoThread(QThread):
         self.__is_playing = False
         self.__is_exporting = False
         self.__frame = None
+        self.export_results = []
 
         if video is None:
             raise Exception("Must provide a video")
@@ -46,18 +47,19 @@ class VideoThread(QThread):
     def frame(self):
         return self.__frame
 
+    @property
+    def duration(self):
+        return self.number_of_frames / self.fps
+
     def run(self):
-        self.mutex.lock()
-        ret, self.__frame = self.video.read()
-        self.mutex.unlock()
-        self.newFrame.emit(self.current_frame, self.__frame)
+        ret, frame = self.step()
         self.render_frame()
 
         while not self.__kill:
+
+            # Render Loop
             while not self.__kill and ret and self.playing and not self.__is_exporting:
                 self.render_frame()
-
-                # Wait and get next frame
                 time.sleep(1/self.fps) # TODO: account for processing time
 
                 if (self.current_frame >= self.number_of_frames-1):
@@ -65,34 +67,37 @@ class VideoThread(QThread):
                 else: 
                     ret, frame = self.step()
 
+            # Export Loop
             while not self.__kill and ret and self.__is_exporting:
                 # print("Exporting Frame", self.current_frame, "of", self.number_of_frames-1)
                 if (self.current_frame >= self.number_of_frames-1):
-                    self.__is_exporting = False
                     self.__finishExport()
-                    print("Export done no ret failure :)")
-                    # break
                 else:
                     ret, frame = self.step()
                     self.__export_progress_bar.setValue(self.current_frame)
-
-                if not ret:
-                    print("No return during export at frame {} / {}".format(self.current_frame-1, self.number_of_frames-1))
-                    ret = True
-                    self.__is_exporting = False
-                    self.__finishExport()
-                    print("Export done")
-                    # break
             
+            # Pause Loop
             while not self.__kill and not self.playing and not self.__is_exporting:
                 time.sleep(1/self.fps) # do nothing
 
+            # Catch error
+            if not ret and not self.__kill:
+                msg = "ERROR getting frame {}. Resetting".format(self.current_frame)
+                print(msg)
+                ret = True
+                if (self.__is_exporting):
+                    self.export_results.append(msg)
+                    self.__finishExport()
+                if (self.__is_playing):
+                    self.set_frame(0)
+
+
     def __finishExport(self):
+        self.__is_exporting = False
         print("Render loop closed")
         # Close writer and remove listeners
         self.__exporter.release()
         self.__exporter = None
-        self.__is_exporting = False
         self.newFrame.disconnect(self.__exportFrame)
         print("Writer Closed")
         self.set_frame(self.__export_start_position)
@@ -102,8 +107,11 @@ class VideoThread(QThread):
         self.__export_progress_bar.setParent(None)
         self.__export_progress_bar.deleteLater()
 
+        print(self.export_results)
+
     def export(self, path, progressbar):
         print("Exporting to", path)
+        self.export_results = []
 
         # Get export information and video writer
         self.__export_start_position = self.current_frame
@@ -113,6 +121,8 @@ class VideoThread(QThread):
                 cv2.VideoWriter_fourcc(*"X264"),
                 self.fps, 
                 resolution)
+
+        self.export_results.append("Exporting frame {} to {} at {} fps ({} seconds)".format(0, self.number_of_frames, self.fps, self.duration))
 
         # Move video to beginning and listen for frames to export
         self.pause()
@@ -170,7 +180,7 @@ class VideoThread(QThread):
     def render_frame(self):
         self.positionChanged.emit(self.current_frame)
         rgb = cv2.cvtColor(self.__frame, cv2.COLOR_BGR2RGB)
-
+        
         # Convert into QT Format
         h, w, ch = rgb.shape
         bytesPerLine = ch*w
@@ -180,13 +190,21 @@ class VideoThread(QThread):
 
     def set_frame(self, frame_index):
         if (0 <= frame_index < self.number_of_frames):
+            self.pause()
             self.mutex.lock()
             self.current_frame = frame_index
             self.video.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
             ret, self.__frame = self.video.read()
             self.mutex.unlock()
-            self.newFrame.emit(self.current_frame, self.__frame)
-            self.render_frame()
+
+            if not ret:
+                msg = "ERROR: failed to set video to {} even though has frames 0-{}".format(frame_index, self.number_of_frames-1)
+                if (self.__is_exporting):
+                    self.export_results.append(msg)
+                print(msg)
+            else:
+                self.newFrame.emit(self.current_frame, self.__frame)
+                self.render_frame()
         else:
             raise Exception("index {} is out of the video bounds 0 -> {}".format(frame_index, self.number_of_frames))
 
@@ -209,7 +227,10 @@ class VideoThread(QThread):
         ))
 
     def kill(self):
+        self.__is_playing = False
+        self.__is_exporting = False
         self.__kill = True
+        # time.sleep(2/self.fps)
         self.terminate()
         self.wait()
 
@@ -257,23 +278,11 @@ class Video(QLabel):
         self.__image_update_thread.positionChanged.connect(self.positionChanged.emit)
         self.__image_update_thread.stateChanged.connect(self.stateChanged.emit)
 
-        # Click Events
-        # self.mouse_down = pyqtSignal(Video, tuple)
-        # self.mouse_move = pyqtSignal(Video, tuple)
-        # self.mouse_up = pyqtSignal(Video, tuple)
-
         self.setFixedWidth(self.resolution[0]/2)
 
         # Blurring
         self._blur_strands = []
         self._blur_object = None
-
-        # Set Cursor
-        self.setCursor(Cursor())
-        # self.setCursor(QCursor(Qt.CrossCursor))
-        # cursor_size = self.cursor().pixmap().size()
-        # self.cursor().pixmap().load("../assets/erase.png")
-        # print("Cursor size",cursor_size.width(), cursor_size.height())
         self.installEventFilter(self)
 
 
@@ -422,7 +431,10 @@ class Video(QLabel):
         return super().mouseReleaseEvent(a0)
 
     def deleteLater(self) -> None:
+        print("Killing Video thread") 
         self.__image_update_thread.kill()
+        self.__image_update_thread.terminate()
+        self.__image_update_thread.wait()
         return super().deleteLater()
 
 
@@ -448,12 +460,22 @@ class VideoWidget(QWidget): #QDock
         self.setLayout(QVBoxLayout())
         self.setObjectName("VideoWidget")
 
+        # Header buttons
+        self.headerButtonRow = QWidget()
+        self.headerButtonRow.setLayout(QHBoxLayout())
+        self.layout().addWidget(self.headerButtonRow)
+        # Export button
+        self.exportButton = QPushButton()
+        self.exportButton.setText("Export")
+        self.exportButton.setEnabled(True)
+        self.exportButton.clicked.connect(self.exportFile)
+        self.headerButtonRow.layout().addWidget(self.exportButton)
         # Close button
         self.closeButton = QPushButton()
         self.closeButton.setText("X")
         self.closeButton.setEnabled(True)
         self.closeButton.clicked.connect(self.deleteLater)
-        self.layout().addWidget(self.closeButton)
+        self.headerButtonRow.layout().addWidget(self.closeButton)
         
         # Video
         self.videoContainer = QWidget()
@@ -536,6 +558,13 @@ class VideoWidget(QWidget): #QDock
         self.layout().addWidget(self.__export_progress_bar)
         self.__export_progress_bar.setGeometry(200, 80, 250, 20)
         self.video.export(filename, self.__export_progress_bar)
+
+    def exportFile(self):
+        path, _ = QFileDialog.getSaveFileName(None, "Export As", QDir.currentPath())
+        if (not path): # user cancels selection
+            return None
+        print("Exporting to", path)
+        self.export(path)
 
 
     # def __onVideoDurationChange(self, duration):
