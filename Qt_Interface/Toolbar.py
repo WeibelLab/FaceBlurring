@@ -44,6 +44,8 @@ class Toolbar (QWidget):
         videoWidget.mouse_down.connect(lambda data: self.on_mouse_down(data[0], data[1]))
         videoWidget.mouse_move.connect(lambda data: self.on_mouse_move(data[0], data[1]))
         videoWidget.mouse_up.connect(lambda data: self.on_mouse_up(data[0], data[1]))
+        videoWidget.mouse_over.connect(self.on_mouse_over)
+        videoWidget.mouse_leave.connect(self.on_mouse_leave)
         videoWidget.scroll_event.connect(self.on_brush_size_changed)
         # videos = video_blurring_window.videoSpace.findChildren(VideoWidget, name="VideoWidget")
 
@@ -56,13 +58,14 @@ class Toolbar (QWidget):
     def on_mouse_up(self, video: Video, click_location: tuple):
         self.active_tool.mouse_up(video, click_location)
 
-    def on_brush_size_changed(self, video, d_size, x, y):
-        self.active_tool.brush_size += d_size*5
-        if self.active_tool.brush_size <= 0:
-            self.active_tool.brush_size = 0
-        self.active_tool.mouse_scroll(video, d_size, x, y)
+    def on_mouse_over(self, video):
+        self.active_tool.mouse_over(video)
 
-        print("Brush size set to", self.active_tool.brush_size)
+    def on_mouse_leave(self, video):
+        self.active_tool.mouse_leave(video)
+
+    def on_brush_size_changed(self, video, d_size, x, y):
+        self.active_tool.mouse_scroll(video, d_size, x, y)
 
 
     def toggle_blur_brush(self):

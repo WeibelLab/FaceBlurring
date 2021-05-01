@@ -1,6 +1,6 @@
 
 from PyQt5 import QtGui
-from PyQt5.QtCore import QDir, QEvent, QUrl, Qt, QThread, pyqtSignal, QMutex
+from PyQt5.QtCore import QDir, QEvent, QSize, QUrl, Qt, QThread, pyqtSignal, QMutex
 from PyQt5.QtMultimedia import QMediaContent, QMediaPlayer
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 from PyQt5.QtWidgets import QDockWidget, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSlider, QStackedLayout, QWidget, QVBoxLayout, QProgressBar
@@ -220,6 +220,8 @@ class Video(QLabel):
     mouse_down = pyqtSignal(tuple)
     mouse_move = pyqtSignal(tuple)
     mouse_up = pyqtSignal(tuple)
+    mouse_over = pyqtSignal(tuple)
+    mouse_leave = pyqtSignal(tuple)
     scroll_event = pyqtSignal(int, float, float)
 
     def __init__(self, parent=None, video="./SampleVideo.mp4"):
@@ -266,7 +268,7 @@ class Video(QLabel):
         # cursor_size = self.cursor().pixmap().size()
         # self.cursor().pixmap().load("../assets/erase.png")
         # print("Cursor size",cursor_size.width(), cursor_size.height())
-        # self.installEventFilter(self)
+        self.installEventFilter(self)
 
 
 
@@ -383,28 +385,12 @@ class Video(QLabel):
 
     def eventFilter(self, obj, event):
         if obj is self:
-            print("self", event.type())
-            if event.type() == QEvent.HoverEnter:
-                print("Hover")
-                self.mouseHoverEnter(event)
-            elif event.type() == QEvent.HoverMove:
-                print("Hover")
-                self.mouseHoverMoved(event)
-            elif event.type() == QEvent.HoverLeave:
-                print("Hover")
-                self.mouseHoverLeave(event)
+            if event.type() == QEvent.Enter:
+                self.mouse_over.emit((event, self))
+            elif event.type() == QEvent.Leave:
+                self.mouse_leave.emit((event, self))
 
         return super(Video, self).eventFilter(obj, event)
-
-    def mouseHoverEnter(self, location):
-        print("Enter", location)
-        pass
-    def mouseHoverMoved(self, location):
-        print(location)
-        pass
-    def mouseHoverLeave(self, location):
-        print("Leave", location)
-        pass
 
     def wheelEvent(self, a0: QtGui.QWheelEvent) -> None:
         steps = a0.angleDelta().y() // 120
@@ -439,6 +425,8 @@ class VideoWidget(QWidget): #QDock
     mouse_down = pyqtSignal(tuple)
     mouse_move = pyqtSignal(tuple)
     mouse_up = pyqtSignal(tuple)
+    mouse_over = pyqtSignal(Video)
+    mouse_leave = pyqtSignal(Video)
     scroll_event = pyqtSignal(Video, int, float, float)
 
     def __init__(self, name="Video", path=None, toolbar=None):
@@ -484,6 +472,8 @@ class VideoWidget(QWidget): #QDock
         self.video.mouse_down.connect(self.mouse_down.emit)
         self.video.mouse_move.connect(self.mouse_move.emit)
         self.video.mouse_up.connect(self.mouse_up.emit)
+        self.video.mouse_over.connect(lambda data: self.mouse_over.emit(data[1]))
+        self.video.mouse_leave.connect(lambda data: self.mouse_leave.emit(data[1]))
         self.video.scroll_event.connect(lambda val, x, y: self.scroll_event.emit(self.video, val, x, y))
 
         # Register with Toolbar

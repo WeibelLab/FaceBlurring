@@ -1,9 +1,9 @@
 
 from abc import abstractmethod
 from PyQt5.QtCore import QRect, Qt
-from PyQt5.QtGui import QIcon, QPixmap
+from PyQt5.QtGui import QCursor, QIcon, QImage, QPixmap
 from PyQt5.QtWidgets import QToolButton, QWidget
-import cv2
+import cv2, numpy
 
 from BlurObject import *
 from Video import Video
@@ -40,12 +40,19 @@ class Tool:
         pass
 
     def mouse_scroll(self, video, value, x, y) -> None:
-        # Show new size
-        x1, y1 = int(x-self.brush_size/2), int(y-self.brush_size/2)
-        x2, y2 = int(x+self.brush_size/2), int(y+self.brush_size/2)
-        cv2.rectangle(video.frame, (x1, y1), (x2, y2), (0,0,0), 2)
-        video.rerender()
-        pass
+        # Set brush size
+        self.brush_size += value*5
+        if self.brush_size <= 0:
+            self.brush_size = 0
+
+        # Set cursor size
+        s = int(self.brush_size/2)
+        cursor_np = numpy.zeros((s, s, 4), numpy.uint8)
+        cv2.rectangle(cursor_np, (0, 0), (s, s), (255, 255, 255, 255), 2)
+        cursor_img = QImage(cursor_np, cursor_np.shape[1], cursor_np.shape[0], cursor_np.shape[1] * 4, QImage.Format_RGBA8888)
+        cursor_pix = QPixmap(cursor_img)
+        cursor = QCursor(cursor_pix, -1, -1)
+        video.setCursor(cursor)
 
     def on_active_tool_changed(self, tool) -> None:
         if (isinstance(tool, type(self))):
@@ -54,6 +61,18 @@ class Tool:
             self.button.setStyleSheet("border:2px solid red")
         else:
             self.button.setStyleSheet("border:None")
+
+    def mouse_over(self, video): 
+        s = int(self.brush_size/2)
+        cursor_np = numpy.zeros((s, s, 4), numpy.uint8)
+        cv2.rectangle(cursor_np, (0, 0), (s, s), (255, 255, 255, 255), 2)
+        cursor_img = QImage(cursor_np, cursor_np.shape[1], cursor_np.shape[0], cursor_np.shape[1] * 4, QImage.Format_RGBA8888)
+        cursor_pix = QPixmap(cursor_img)
+        cursor = QCursor(cursor_pix, -1, -1)
+        video.setCursor(cursor)
+
+    def mouse_leave(self, video):
+        video.setCursor(QCursor())
 
 
 
@@ -130,13 +149,17 @@ class Eraser(Tool):
                 ret = point.get_blur_region(video.frame)
                 if ret is None: continue
                 x_start, y_start, x_end, y_end = ret
-                print("Blur region (x {}, y {}, x end {}, y end {}). Click at ({}, {})".format(x_start, y_start, x_end, y_end, *location))
 
                 # Check if click is within a blur
                 if (x_start < location[0] < x_end) and (y_start < location[1] < y_end):
                     strand.destroy()
 
                 video.setPosition(video.position)
+
+    def mouse_over(self, video): 
+        video.setCursor(Qt.CursorShape.CrossCursor)
+    def mouse_scroll(self, video, value, x, y) -> None:
+        pass
 
 class SplitStrand(Tool):
     '''
@@ -163,13 +186,15 @@ class SplitStrand(Tool):
                 ret = point.get_blur_region(video.frame)
                 if ret is None: continue
                 x_start, y_start, x_end, y_end = ret
-                print("Blur region (x {}, y {}, x end {}, y end {}). Click at ({}, {})".format(x_start, y_start, x_end, y_end, *location))
 
                 # Check if click is within a blur
                 if (x_start < location[0] < x_end) and (y_start < location[1] < y_end):
-                    print("\tSplit")
                     newStrands = strand.split_on(video.position)
 
                     return # only split one at a time
 
-            
+    
+    def mouse_over(self, video): 
+        video.setCursor(Qt.CursorShape.CrossCursor)
+    def mouse_scroll(self, video, value, x, y) -> None:
+        pass   
