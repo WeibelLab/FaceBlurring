@@ -17,7 +17,7 @@ class VideoThread(QThread):
     stateChanged = pyqtSignal(bool) # True for playing started. False for playing stopped
     positionChanged = pyqtSignal(int)
 
-    def __init__(self, parent=None, video=None):
+    def __init__(self, parent=None, video=None, name="vid"):
         super().__init__(parent)
         self.__kill = False
         self.mutex = QMutex()
@@ -560,9 +560,13 @@ class VideoWidget(QWidget): #QDock
         self.video.export(filename, self.__export_progress_bar)
 
     def exportFile(self):
-        path, _ = QFileDialog.getSaveFileName(None, "Export As", QDir.currentPath())
+        path, _ = QFileDialog.getSaveFileName(None, "Export As", QDir.currentPath(), "Video (*.mp4)")
         if (not path): # user cancels selection
             return None
+
+        # Make sure using .mp4            
+        # outFilename = os.path.splitext(os.path.basename(path))[0]+"_blurred.mp4")
+
         print("Exporting to", path)
         self.export(path)
 

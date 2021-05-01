@@ -101,6 +101,17 @@ class BlurStrand:
         self.video.newFrame.disconnect(self.blurFrame)
         self.video._blur_strands.remove(self)
 
+    def serialize(self):
+        out = {
+            "video": self.video._video_path,
+            "points": []
+        }
+
+        for point in self.__points:
+            out["points"].append(point.serialize())
+
+        return out
+
 
 
 
@@ -181,5 +192,14 @@ class BlurPoint:
         return "{} size blur at ({}, {}) on frame {}".format(self.size, self.x, self.y, self.index)
     def __str__(self):
         return self.__repr__()
+
+    def serialize(self):
+        return {
+            "frame": self.index,
+            "x": self.x,
+            "y": self.y,
+            "size": self.size,
+            "resolution": self.resolution
+        }
 
     

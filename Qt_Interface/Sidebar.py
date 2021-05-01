@@ -1,10 +1,11 @@
 
+from PyQt5.QtGui import QKeySequence
 from Video import VideoWidget
 from PyQt5.QtCore import QDir
-from PyQt5.QtWidgets import QDockWidget, QFileDialog, QVBoxLayout, QPushButton, QWidget
+from PyQt5.QtWidgets import QDockWidget, QFileDialog, QShortcut, QVBoxLayout, QPushButton, QWidget
 from PyQt5.QtCore import Qt
 import os, shutil, atexit
-import cv2
+import cv2, uuid, json
 
 class SidebarWidget(QWidget): #QDock
 
@@ -26,6 +27,17 @@ class SidebarWidget(QWidget): #QDock
         self.exportButton.setText("Export All (broken)")
         self.exportButton.clicked.connect(self.exportVideos)
         self.layout().addWidget(self.exportButton)
+
+        self.saveButton = QPushButton()
+        self.saveButton.setText("Save As")
+        self.saveButton.clicked.connect(self.save)
+        self.layout().addWidget(self.saveButton)
+
+        self.saveShortcut = QShortcut(QKeySequence('Ctrl+S'), self)
+        self.saveShortcut.activated.connect(self.save)
+
+        self.__save_location = None
+
 
         self.setMinimumSize(300, 800)
 
@@ -76,3 +88,31 @@ class SidebarWidget(QWidget): #QDock
         for widget in VideoWidget.Widgets:
             outFilename = os.path.join(path, os.path.splitext(os.path.basename(widget.video._video_path))[0]+"_blurred.mp4")
             widget.export(outFilename)
+
+    def save(self):
+        if self.__save_location is None:
+            path, _ = QFileDialog.getSaveFileName(None, "Export As", QDir.currentPath(), "Video Blur File (*.vibf)")
+            if (not path): # user cancels selection
+                return
+            
+            self.__save_location = path
+            self.saveButton.setText("Save")
+
+        
+        data = {
+            "uuid": str(uuid.uuid4()),
+            "videos": [],
+        }
+
+        for widget in VideoWidget.Widgets:
+            videoData = {
+                "name": widget.video._video_path,
+                "blurstrands": []
+            }
+            for strand in widget.video._blur_strands:
+                videoData["blurstrands"].append(strand.serialize())
+            data["videos"].append(videoData)
+
+        with open(self.__save_location, "w") as file:
+            file.write(json.dumps(data))
+
