@@ -54,45 +54,37 @@ class VideoThread(QThread):
         self.render_frame()
 
         while not self.__kill:
-            if self.playing and not self.__is_exporting:
-                while ret and self.playing:
-                    self.render_frame()
+            while ret and self.playing and not self.__is_exporting:
+                self.render_frame()
 
-                    # Wait and get next frame
-                    time.sleep(1/self.fps) # TODO: account for processing time
+                # Wait and get next frame
+                time.sleep(1/self.fps) # TODO: account for processing time
 
-                    if (self.current_frame >= self.number_of_frames-1):
-                        self.pause()
-                    else: 
-                        self.mutex.lock()
-                        ret, self.__frame = self.video.read()
-                        self.current_frame += 1
+                if (self.current_frame >= self.number_of_frames-1):
+                    self.pause()
+                else: 
+                    ret, frame = self.step()
 
-                        self.mutex.unlock()
-                        if ret:
-                            self.newFrame.emit(self.current_frame, self.__frame)
-            elif self.__is_exporting:
-                while ret and self.__is_exporting:
-                    # print("Exporting Frame", self.current_frame, "of", self.number_of_frames-1)
-                    if (self.current_frame >= self.number_of_frames-1): # FIXME: never gets called
-                        print("Rendered Full Video")
-                        self.__is_exporting = False
-                    else: 
-                        self.mutex.lock()
-                        ret, self.__frame = self.video.read()
-                        self.current_frame += 1
-                        self.__export_progress_bar.setValue(self.current_frame)
+            while ret and self.__is_exporting:
+                print("Exporting Frame", self.current_frame, "of", self.number_of_frames-1)
+                if (self.current_frame >= self.number_of_frames-1):
+                    self.__is_exporting = False
+                    self.__finishExport()
+                    print("Export done no ret failure :)")
+                    # break
+                else:
+                    ret, frame = self.step()
+                    self.__export_progress_bar.setValue(self.current_frame)
 
-                        self.mutex.unlock()
-                        if ret:
-                            self.newFrame.emit(self.current_frame, self.__frame)
-                        else: # FIXME: shouldn't be getting called but does
-                            ret = True
-                            self.__is_exporting = False
-                
-                self.__finishExport()
-                print("Export done")
-            else:
+                if not ret:
+                    print("No return during export at frame {} / {}".format(self.current_frame-1, self.number_of_frames-1))
+                    ret = True
+                    self.__is_exporting = False
+                    self.__finishExport()
+                    print("Export done")
+                    # break
+            
+            while not self.playing and not self.__is_exporting:
                 time.sleep(1/self.fps) # do nothing
 
     def __finishExport(self):
@@ -167,6 +159,16 @@ class VideoThread(QThread):
             self.__is_playing = False
             self.stateChanged.emit(self.playing)
 
+    def step(self):
+        self.mutex.lock()
+        ret, self.__frame = self.video.read()
+        self.mutex.unlock()
+
+        self.current_frame += 1
+        if ret:
+            self.newFrame.emit(self.current_frame, self.__frame)
+        return (ret, self.__frame)
+
     def render_frame(self):
         self.positionChanged.emit(self.current_frame)
         rgb = cv2.cvtColor(self.__frame, cv2.COLOR_BGR2RGB)
@@ -207,6 +209,7 @@ class VideoThread(QThread):
             (x, y), x/y,
             self.output_resolution
         ))
+
 
 class Video(QLabel):
 

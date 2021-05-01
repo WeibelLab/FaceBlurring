@@ -1,0 +1,557 @@
+
+from PyQt5 import QtGui
+from PyQt5.QtCore import QDir, QEvent, QObject, QSize, QUrl, Qt, QThread, pyqtSignal, QMutex
+from PyQt5.QtMultimedia import QMediaContent, QMediaPlayer
+from PyQt5.QtMultimediaWidgets import QVideoWidget
+from PyQt5.QtWidgets import QDockWidget, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSlider, QStackedLayout, QWidget, QVBoxLayout, QProgressBar
+from PyQt5.QtGui import QCursor, QFont, QImage, QPixmap
+
+import cv2, os, shutil, atexit, numpy, time
+from BlurObject import *
+from Cursor import Cursor
+
+class VideoThread(QThread):
+    changePixmap = pyqtSignal(QImage)
+    newFrame = pyqtSignal(int, numpy.ndarray)
+    stateChanged = pyqtSignal(bool) # True for playing started. False for playing stopped
+    positionChanged = pyqtSignal(int)
+
+    def __init__(self, parent=None, video=None):
+        super().__init__(parent)
+        self.__kill = False
+        self.mutex = QMutex()
+        self.__exporter = None
+
+        self.video = video
+        self.fps = self.video.get(cv2.CAP_PROP_FPS)
+        self.resolution = self.video.get(cv2.CAP_PROP_FRAME_WIDTH), self.video.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        self.output_resolution = self.resolution
+        
+        # play state
+        self.number_of_frames = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.current_frame = 0
+        self.__is_playing = False
+        self.__is_exporting = False
+        self.__exportWorker = None
+        self.__exportThread = None
+        self.__frame = None
+
+        if video is None:
+            raise Exception("Must provide a video")
+
+    @property
+    def playing(self):
+        return self.__is_playing
+
+    @property
+    def frame(self):
+        return self.__frame
+
+    @property
+    def duration(self):
+        return self.number_of_frames / self.fps
+
+    def run(self):
+        self.mutex.lock()
+        ret, self.__frame = self.video.read()
+        self.mutex.unlock()
+        self.newFrame.emit(self.current_frame, self.__frame)
+        self.render_frame()
+
+        while not self.__kill:
+            if self.playing and not self.__is_exporting:
+                while ret and self.playing:
+                    self.render_frame()
+
+                    # Wait and get next frame
+                    time.sleep(1/self.fps) # TODO: account for processing time
+
+                    if (self.current_frame >= self.number_of_frames-1):
+                        self.pause()
+                    else: 
+                        ret, frame = self.step()
+            else:
+                time.sleep(1/self.fps) # do nothing
+
+    def export(self, path, progressbar):
+        if self.__is_exporting or self.__exportWorker is not None or self.__exportThread is not None:
+            raise Exception("Must wait until previous export is finished")
+
+        self.__is_exporting = True
+        self.__exportWorker = Exporter(progressbar, self, path)
+        self.__exportThread = QThread()
+        self.__exportWorker.moveToThread(self.__exportThread)
+        self.__exportWorker.start()
+
+        self.__exportWorker.exportComplete.connect(self.__export_end)
+        # self.__exportWorker.start()
+        
+    def __export_end(self):
+        self.__is_exporting = False
+        self.__exportWorker = None
+        self.__exportThread = None
+
+    def play(self):
+        if self.playing:
+            pass
+        else:
+            print("Thread playing")
+            if self.current_frame >= self.number_of_frames-1:
+                self.set_frame(0)
+                
+            self.__is_playing = True
+            self.stateChanged.emit(self.playing)
+            
+    def pause(self):
+        if not self.playing:
+            pass
+        else:
+            print("Thread Pausing")
+            self.__is_playing = False
+            self.stateChanged.emit(self.playing)
+
+    def step(self):
+        self.mutex.lock()
+        ret, self.__frame = self.video.read()
+        self.mutex.unlock()
+
+        self.current_frame += 1
+        if ret:
+            self.newFrame.emit(self.current_frame, self.__frame)
+        return (ret, self.__frame)
+
+    def render_frame(self):
+        self.positionChanged.emit(self.current_frame)
+        rgb = cv2.cvtColor(self.__frame, cv2.COLOR_BGR2RGB)
+
+        # Convert into QT Format
+        h, w, ch = rgb.shape
+        bytesPerLine = ch*w
+        qtImage = QImage(rgb, w, h, bytesPerLine, QImage.Format_RGB888)
+        scaled = qtImage.scaled(self.output_resolution[0], self.output_resolution[1], Qt.KeepAspectRatio)
+        self.changePixmap.emit(scaled) # emit event
+
+    def set_frame(self, frame_index):
+        if (0 <= frame_index < self.number_of_frames):
+            self.mutex.lock()
+            self.current_frame = frame_index
+            self.video.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+            ret, self.__frame = self.video.read()
+            self.mutex.unlock()
+            self.newFrame.emit(self.current_frame, self.__frame)
+            self.render_frame()
+        else:
+            raise Exception("index {} is out of the video bounds 0 -> {}".format(frame_index, self.number_of_frames))
+
+    def reblit(self):
+        self.set_frame(self.current_frame)
+
+    def rerender(self):
+        self.render_frame()
+
+    def updateSize(self, x, y):
+        aspect_ratio = self.resolution[0] / self.resolution[1]
+        x = x
+        y = x/aspect_ratio
+        self.output_resolution = [x, y]
+
+        print("Request to update resolution of {} video ({} aspect ratio) to {} ({} aspect ratio).\n\tActually set to {}".format(
+            self.resolution, aspect_ratio,
+            (x, y), x/y,
+            self.output_resolution
+        ))
+
+class Exporter(QObject):
+    exportComplete = pyqtSignal()
+
+    def __init__(self, progressbar: QProgressBar, videoObject: VideoThread, path: str):
+        super().__init__()
+        self.progressbar = progressbar
+        self.video = videoObject
+        self.path = path
+        # self.__setupExport()
+        print("Initialized Exporter Thread")
+
+    def __run(self):
+        ret = True
+        while True:
+            print("Exporting Frame", self.video.current_frame, "of", self.video.number_of_frames-1)
+            ret, frame = self.video.step()
+            self.progressbar.setValue(self.video.current_frame)
+
+            if not ret: # FIXME: shouldn't be getting called but does
+                print("No return during export at frame {} / {}".format(self.video.current_frame-1, self.video.number_of_frames-1))
+                break
+        
+        self.__finishExport()
+        print("Export done")
+
+    def start(self):
+        print("Exporting to", self.path)
+        print("Video has {} frames and lasts {} seconds".format(self.video.number_of_frames, self.video.duration))
+
+        # Get export information and video writer
+        self.__export_start_position = self.video.current_frame
+        resolution = tuple(map(int, self.video.resolution))
+        print("-"*50)
+        self.__exporter = cv2.VideoWriter(
+                self.path, 
+                cv2.VideoWriter_fourcc(*"X264"),
+                self.video.fps, 
+                resolution)
+
+        # Move video to beginning and listen for frames to export
+        self.video.pause()
+        self.video.newFrame.connect(self.__exportFrame)
+        self.video.set_frame(0)
+        self.video.positionChanged.emit(self.video.current_frame)
+
+        # Create progress bar
+        self.progressbar.setMaximum(self.video.number_of_frames)
+        self.progressbar.setValue(0)
+
+        # Read first frame
+        ret, frame = self.video.step()
+
+        if (ret):
+            self.__run()
+
+    def __finishExport(self):
+        print("Render loop closed")
+        # Close writer and remove listeners
+        self.__exporter.release()
+        self.__exporter = None
+        self.video.newFrame.disconnect(self.__exportFrame)
+        print("Writer Closed")
+        self.video.set_frame(self.__export_start_position)
+        # remove progress bar
+        self.progressbar.setValue(self.video.number_of_frames)
+        self.progressbar.parent().layout().removeWidget(self.progressbar)
+        self.progressbar.setParent(None)
+        self.progressbar.deleteLater()
+
+        self.exportComplete.emit()
+
+    def __exportFrame(self, index, frame):
+        if (self.__exporter != None):
+            self.video.mutex.lock()
+            self.__exporter.write(frame)
+            self.video.mutex.unlock()
+
+
+class Video(QLabel):
+
+    __sizeChanged = pyqtSignal(int, int)
+    newFrame = pyqtSignal(int, numpy.ndarray) # Outputs an OpenCV frame before it is rendered to GUI
+    positionChanged = pyqtSignal(int)
+    stateChanged = pyqtSignal(bool)
+
+    
+    # Click Events
+    mouse_down = pyqtSignal(tuple)
+    mouse_move = pyqtSignal(tuple)
+    mouse_up = pyqtSignal(tuple)
+    mouse_over = pyqtSignal(tuple)
+    mouse_leave = pyqtSignal(tuple)
+    scroll_event = pyqtSignal(int, float, float)
+
+    def __init__(self, parent=None, video="./SampleVideo.mp4"):
+        super().__init__(parent)
+        self.setLayout(QVBoxLayout())
+        self.layout().setSpacing(0)
+        self.layout().setContentsMargins(0, 0, 0, 0)
+        self.setStyleSheet("border: #f00 solid 5px")
+
+        # Load Video
+        self._video_path = video
+        self.video = cv2.VideoCapture(video)
+        atexit.register(self.video.release)
+        self.__fps = self.video.get(cv2.CAP_PROP_FPS)
+        self.__resolution = self.video.get(cv2.CAP_PROP_FRAME_WIDTH), self.video.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        self.__number_of_frames = self.video.get(cv2.CAP_PROP_FRAME_COUNT)
+        print("Playing {} at {} fps and {}x{}".format(self._video_path, self.fps, self.resolution[0], self.resolution[1]))
+
+        # Video Reader
+        self.__image_update_thread = VideoThread(self, video=self.video)
+        self.__image_update_thread.changePixmap.connect(self.__setImage)
+        self.__image_update_thread.start()
+        self.__sizeChanged.connect(self.__image_update_thread.updateSize)
+
+        # Pass through signals
+        self.__image_update_thread.newFrame.connect(self.newFrame.emit, type=Qt.DirectConnection)
+        self.__image_update_thread.positionChanged.connect(self.positionChanged.emit)
+        self.__image_update_thread.stateChanged.connect(self.stateChanged.emit)
+
+        # Click Events
+        # self.mouse_down = pyqtSignal(Video, tuple)
+        # self.mouse_move = pyqtSignal(Video, tuple)
+        # self.mouse_up = pyqtSignal(Video, tuple)
+
+        self.setFixedWidth(self.resolution[0]/2)
+
+        # Blurring
+        self._blur_strands = []
+        self._blur_object = None
+
+        # Set Cursor
+        self.setCursor(Cursor())
+        # self.setCursor(QCursor(Qt.CrossCursor))
+        # cursor_size = self.cursor().pixmap().size()
+        # self.cursor().pixmap().load("../assets/erase.png")
+        # print("Cursor size",cursor_size.width(), cursor_size.height())
+        self.installEventFilter(self)
+
+
+
+    @property
+    def duration(self):
+        return self.number_of_frames / self.fps
+
+    @property
+    def number_of_frames(self):
+        return self.__number_of_frames
+
+    @property
+    def resolution(self):
+        return self.__resolution
+
+    @property
+    def fps(self):
+        return self.__fps
+
+    @property
+    def playing(self):
+        return self.__image_update_thread.playing
+
+    @property
+    def position(self):
+        return self.__image_update_thread.current_frame
+
+    @property
+    def frame(self):
+        return self.__image_update_thread.frame
+
+    def __setImage(self, image):
+        self.setPixmap(QPixmap.fromImage(image))
+
+    def export(self, path, progressbar):
+        self.__image_update_thread.export(path, progressbar)
+
+    def setFixedSize(self, x, y):
+        # Constrain size to video aspect ratio
+        aspect_ratio = self.resolution[0] / self.resolution[1]
+        x = x
+        y = x / aspect_ratio
+
+        super().setFixedSize(x, y)
+        self.__sizeChanged.emit(x, y)
+
+    def setMinimumSize(self, x, y):
+        # Constrain size to video aspect ratio
+        aspect_ratio = self.resolution[0] / self.resolution[1]
+        x = x
+        y = x / aspect_ratio
+
+        super().setMinimumSize(x, y)
+        self.__sizeChanged.emit(x, y)
+
+    def setFixedHeight(self, h: int) -> None:
+        # Constrain size to video aspect ratio
+        aspect_ratio = self.resolution[0] / self.resolution[1]
+        x = h * aspect_ratio
+        y = h
+        self.setFixedSize(x, y)
+
+    def setFixedWidth(self, w: int) -> None:
+        # Constrain size to video aspect ratio
+        aspect_ratio = self.resolution[0] / self.resolution[1]
+        x = w
+        y = w / aspect_ratio
+        self.setFixedSize(x, y)
+
+    def setMinimumHeight(self, minh: int) -> None:
+        # Constrain size to video aspect ratio
+        aspect_ratio = self.resolution[0] / self.resolution[1]
+        x = minh * aspect_ratio
+        y = minh
+        self.setMinimumSize(x, y)
+
+    def setMinimumWidth(self, minw: int) -> None:
+        # Constrain size to video aspect ratio
+        aspect_ratio = self.resolution[0] / self.resolution[1]
+        x = minw
+        y = minw / aspect_ratio
+        self.setMinimumSize(x, y)
+
+    def play(self):
+        print("Playing")
+        self.__image_update_thread.play()
+
+    def pause(self):
+        print("Pausing")
+        self.__image_update_thread.pause()
+
+    def setPosition(self, frame):
+        self.__image_update_thread.set_frame(frame)
+
+    def reblit(self):
+        self.__image_update_thread.reblit()
+
+    def rerender(self):
+        self.__image_update_thread.rerender()
+
+
+
+    def convert_point_to_video(self, x, y):
+        '''
+        Converts a point in the Video object PyQt space
+        into the pixel in the video element
+        '''
+
+        new_x = numpy.interp(x, [0, self.size().width()], [0, self.resolution[0]])
+        new_y = numpy.interp(y, [0, self.size().height()], [0, self.resolution[1]])
+        return (new_x, new_y)
+
+        
+
+    def eventFilter(self, obj, event):
+        if obj is self:
+            if event.type() == QEvent.Enter:
+                self.mouse_over.emit((event, self))
+            elif event.type() == QEvent.Leave:
+                self.mouse_leave.emit((event, self))
+
+        return super(Video, self).eventFilter(obj, event)
+
+    def wheelEvent(self, a0: QtGui.QWheelEvent) -> None:
+        steps = a0.angleDelta().y() // 120
+        self.scroll_event.emit(steps, a0.position().x(), a0.position().y())
+        return super().wheelEvent(a0)
+
+    def mousePressEvent(self, a0: QtGui.QMouseEvent) -> None:
+        click = (a0.localPos().x(), a0.localPos().y())
+        frame_loc = self.convert_point_to_video(*click)
+        self.mouse_down.emit((self, frame_loc))
+        return super().mousePressEvent(a0)
+
+    def mouseMoveEvent(self, a0: QtGui.QMouseEvent) -> None:
+        click = (a0.localPos().x(), a0.localPos().y())
+        frame_loc = self.convert_point_to_video(*click)
+        self.mouse_move.emit((self, frame_loc))
+        return super().mouseMoveEvent(a0)
+
+    def mouseReleaseEvent(self, a0: QtGui.QMouseEvent) -> None:
+        click = (a0.localPos().x(), a0.localPos().y())
+        frame_loc = self.convert_point_to_video(*click)
+        self.mouse_up.emit((self, frame_loc))
+        return super().mouseReleaseEvent(a0)
+
+
+
+
+class VideoWidget(QWidget): #QDock
+    Widgets = []
+
+    # Passthrough click events
+    mouse_down = pyqtSignal(tuple)
+    mouse_move = pyqtSignal(tuple)
+    mouse_up = pyqtSignal(tuple)
+    mouse_over = pyqtSignal(Video)
+    mouse_leave = pyqtSignal(Video)
+    scroll_event = pyqtSignal(Video, int, float, float)
+
+    def __init__(self, name="Video", path=None, toolbar=None):
+        super().__init__()
+        # self.setFloating(False)
+        # self.setFeatures(QDockWidget.DockWidgetMovable)
+        # self.setAllowedAreas(Qt.AllDockWidgetAreas)
+
+        # Structure
+        self.setLayout(QVBoxLayout())
+        self.setObjectName("VideoWidget")
+
+        # Video
+        self.videoContainer = QWidget()
+        self.videoContainer.setLayout(QStackedLayout())
+        self.video = Video(None, video=path)
+        self.videoContainer.layout().addWidget(self.video)
+        self.layout().addWidget(self.videoContainer)
+
+        self.video.stateChanged.connect(self.__onPlayerStateChange)
+        # self.video.setFixedWidth(640)
+
+        # Buttons
+        self.buttonRow = QWidget()
+        self.buttonRowLayout = QHBoxLayout()
+        self.buttonRow.setLayout(self.buttonRowLayout)
+        self.layout().addWidget(self.buttonRow)
+        # Play
+        self.playButton = QPushButton()
+        self.playButton.setText("Play")
+        self.playButton.setEnabled(False)
+        self.playButton.clicked.connect(self.play)
+        self.buttonRowLayout.addWidget(self.playButton)
+        # Progress Bar
+        self.progressSlider = QSlider(Qt.Horizontal)
+        self.progressSlider.setRange(0, int(self.video.number_of_frames-1))
+        self.progressSlider.sliderMoved.connect(self.setPosition) # set position when user moves slider
+        self.progressSlider.sliderPressed.connect(self.video.pause) # pause when user presses slider
+        self.video.positionChanged.connect(self.progressSlider.setValue) # update the slider as video plays
+        self.buttonRowLayout.addWidget(self.progressSlider)
+
+        # Passthrough click events
+        self.video.mouse_down.connect(self.mouse_down.emit)
+        self.video.mouse_move.connect(self.mouse_move.emit)
+        self.video.mouse_up.connect(self.mouse_up.emit)
+        self.video.mouse_over.connect(lambda data: self.mouse_over.emit(data[1]))
+        self.video.mouse_leave.connect(lambda data: self.mouse_leave.emit(data[1]))
+        self.video.scroll_event.connect(lambda val, x, y: self.scroll_event.emit(self.video, val, x, y))
+
+        # Register with Toolbar
+        toolbar.register_video(self)
+        VideoWidget.Widgets.append(self)
+        self.destroyed.connect(lambda: VideoWidget.Widgets.remove(self)) # TODO: check if this works
+
+    @property
+    def display_resolution(self):
+        return (self.video.size().width(), self.video.size().height())
+
+    @property
+    def video_resolution(self):
+        return self.video.resolution
+
+    def pause(self):
+        self.video.pause()
+
+    def play(self):
+        ''' plays or pauses video '''
+        if self.video.playing:
+            self.video.pause()
+        else:
+            self.video.play()
+
+    def __onPlayerStateChange(self, state):
+        ''' changes the play/pause button depending on state '''
+        if state:
+            self.playButton.setText("Pause")
+        else:
+            self.playButton.setText("Play")
+
+    def setPosition(self, pos):
+        ''' Sets the current playback position of the video '''
+        self.video.setPosition(pos)
+
+    def reblit(self):
+        self.video.reblit()
+
+    def export(self, filename) :
+        # QThread.thread()
+        # threading.Thread(target=self.video.export, args=(filename, ))
+        self.__export_progress_bar = QProgressBar()
+        self.layout().addWidget(self.__export_progress_bar)
+        self.__export_progress_bar.setGeometry(200, 80, 250, 20)
+        self.video.export(filename, self.__export_progress_bar)
+
+
+    # def __onVideoDurationChange(self, duration):
+    #     self.progressSlider.setRange(0, duration)

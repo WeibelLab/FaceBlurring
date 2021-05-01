@@ -39,7 +39,7 @@ class SidebarWidget(QWidget): #QDock
         if (not path): # user cancels selection
             return None
 
-        video = self._duplicate_and_load(self, path)
+        video = self._load(self, path)
         if (isinstance(video, QDockWidget)):
             self.videoSpace.addDockWidget(Qt.LeftDockWidgetArea, video)
         else:
@@ -47,7 +47,7 @@ class SidebarWidget(QWidget): #QDock
         
     
     @staticmethod
-    def _duplicate_and_load(sidebar, path):
+    def _load(sidebar, path):
         '''Loads video from a path
         @param {str} path the path to the video. If None will open file selection window
 
@@ -57,29 +57,12 @@ class SidebarWidget(QWidget): #QDock
 
 
         # Load Video
-        # Move video to tmp folder
         absolute_path = os.path.abspath(path)
+        path = absolute_path
         folder = os.path.dirname(absolute_path)
-        temp_folder = os.path.join(folder, "tmp")
         filename = absolute_path.replace(folder, "").strip("\\").strip("/")
 
-        # Create temp folder
-        if not os.path.exists(temp_folder):
-            os.mkdir(temp_folder) # make folder
-            def removeFolder(folder):
-                print("Removing folder", folder)
-                os.removedirs(folder)
-            atexit.register(removeFolder, folder=temp_folder) # only gets removed by whichever video created it
-
-        # Create temp file
-        path = os.path.join(temp_folder, "_"+filename)
-        shutil.copyfile(absolute_path, path) # copy file so we can edit it
-        def remove(filepath):
-            print("Removing file", filepath)
-            os.remove(filepath)
-        atexit.register(remove, filepath=path)
-
-        instance = VideoWidget(filename, path=path, toolbar=sidebar.video_blurring_window.toolbar)
+        instance = VideoWidget(filename, path=absolute_path, toolbar=sidebar.video_blurring_window.toolbar)
         instance.playButton.setEnabled(True)
         return instance
 
