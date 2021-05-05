@@ -112,6 +112,17 @@ class BlurStrand:
 
         return out
 
+    @staticmethod
+    def deserialize(data, videoWidget):
+        strand = BlurStrand(videoWidget.video, videoWidget.video_resolution)
+        points = []
+        for point in data["points"]:
+            points.append(BlurPoint.deserialize(point))
+
+        strand.__points = points
+        strand.complete(False)
+        return strand
+
 
 
 
@@ -201,5 +212,9 @@ class BlurPoint:
             "size": self.size,
             "resolution": self.resolution
         }
+
+    @staticmethod
+    def deserialize(data):
+        return BlurPoint(data["frame"], (data["x"], data["y"]), data["size"], data["resolution"])
 
     

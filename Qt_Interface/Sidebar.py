@@ -1,6 +1,7 @@
 
 from PyQt5.QtGui import QKeySequence
 from Video import VideoWidget
+from BlurObject import *
 from PyQt5.QtCore import QDir
 from PyQt5.QtWidgets import QDockWidget, QFileDialog, QShortcut, QVBoxLayout, QPushButton, QWidget
 from PyQt5.QtCore import Qt
@@ -32,6 +33,11 @@ class SidebarWidget(QWidget): #QDock
         self.saveButton.setText("Save As")
         self.saveButton.clicked.connect(self.save)
         self.layout().addWidget(self.saveButton)
+
+        self.loadButton = QPushButton()
+        self.loadButton.setText("Load Session")
+        self.loadButton.clicked.connect(self.openFile)
+        self.layout().addWidget(self.loadButton)
 
         self.saveShortcut = QShortcut(QKeySequence('Ctrl+S'), self)
         self.saveShortcut.activated.connect(self.save)
@@ -116,3 +122,33 @@ class SidebarWidget(QWidget): #QDock
         with open(self.__save_location, "w") as file:
             file.write(json.dumps(data))
 
+    def openFile(self):
+        path, _ = QFileDialog.getOpenFileName(None, "Load", QDir.currentPath(), "Video Blur File (*.vibf)")
+        if (not path): # user cancels selection
+            return
+
+        # Remove existing videos
+        for widget in VideoWidget.Widgets:
+            widget.deleteLater()
+            
+        self.__save_location = path
+        self.saveButton.setText("Save")
+
+        with open(path, "r") as file:
+            lines = file.readlines()
+            filetext = "".join(lines)
+            data = json.loads(filetext)
+
+            for video in data["videos"]:
+                # Load Video to UI
+                widget = self._load(self, video["name"])
+                if (isinstance(widget, QDockWidget)):
+                    self.videoSpace.addDockWidget(Qt.LeftDockWidgetArea, widget)
+                else:
+                    self.videoSpace.layout().addWidget(widget)
+
+                # Load blurstrands
+                print(video.keys())
+                for strand in video["blurstrands"]:
+                    BlurStrand.deserialize(strand, widget)
+                
